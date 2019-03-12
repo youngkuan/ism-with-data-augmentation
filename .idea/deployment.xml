@@ -12,7 +12,7 @@
       <paths name="yangkuan@202.117.54.73:9221">
         <serverdata>
           <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/yangkuan/image-caption/ism-with-data-augmentation" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
