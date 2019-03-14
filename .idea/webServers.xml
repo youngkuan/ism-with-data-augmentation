@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="ebe29dd3-7f46-45d3-834a-3a2dbd8b8110" name="xjtuzll" url="http://202.117.54.73">
+        <fileTransfer host="202.117.54.73" port="42222" privateKey="G:\YangKuan\工程\服务器\id_rsa_xjtuzll_73-42222.rsa" accessType="SFTP" keyPair="true">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" shareSSLContext="true" />
+          </advancedOptions>
+          <option name="port" value="42222" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

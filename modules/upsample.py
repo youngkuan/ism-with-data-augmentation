@@ -13,7 +13,7 @@ class UpsampleNetwork(nn.Module):
         super(UpsampleNetwork, self).__init__()
         self.ngf = arguments['ngf']
         self.input_dim = arguments['up_sample_input_dim']
-        self.define_module()
+        # self.define_module()
         self.upsampleNetworkT2I = UpsampleNetworkT2I(arguments)
 
     def forward(self, sentence_embedding, noise=None):

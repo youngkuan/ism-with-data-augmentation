@@ -13,7 +13,7 @@ class UpsampleNetwork(nn.Module):
     def __init__(self, arguments):
         super(UpsampleNetwork, self).__init__()
         self.ngf = arguments['ngf']
-        self.input_size = arguments['up_sample_input_size']
+        self.input_size = arguments['up_sample_input_dim']
         self.num_channels = arguments['num_channels']
 
         self.generator = nn.Sequential(
