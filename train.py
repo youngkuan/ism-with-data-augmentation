@@ -6,7 +6,8 @@
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
-from datasets import FakeImageDataLoader,FakeSentenceDataLoader,MatchDataLoader
+
+from datasets import FakeImageDataLoader, FakeSentenceDataLoader, MatchDataLoader
 from loss import RankingLoss, FakeImageLoss, FakeSentenceLoss
 from modules.discrminator import FakeImageDiscriminator, FakeSentenceDiscriminator, MatchDiscriminator
 from modules.generator import ImageGenerator, SentenceGenerator
@@ -27,16 +28,17 @@ class Trainer(object):
         # data loader
         self.fake_image_data_set = FakeImageDataLoader(arguments)
         self.fake_image_data_loader = DataLoader(self.fake_image_data_set, batch_size=self.batch_size, shuffle=True,
-                                      num_workers=self.num_workers)
+                                                 num_workers=self.num_workers)
 
         self.fake_sentence_data_set = FakeSentenceDataLoader(arguments)
-        self.fake_sentence_data_loader = DataLoader(self.fake_sentence_data_set, batch_size=self.batch_size, shuffle=True,
-                                                 num_workers=self.num_workers)
+        self.fake_sentence_data_loader = DataLoader(self.fake_sentence_data_set, batch_size=self.batch_size,
+                                                    shuffle=True,
+                                                    num_workers=self.num_workers)
 
         self.match_data_set = MatchDataLoader(arguments)
         self.match_data_loader = DataLoader(self.match_data_set, batch_size=self.batch_size,
-                                                    shuffle=True,
-                                                    num_workers=self.num_workers)
+                                            shuffle=True,
+                                            num_workers=self.num_workers)
 
         # 图像生成器
         self.image_generator = ImageGenerator(arguments).cuda()
@@ -117,6 +119,8 @@ class Trainer(object):
                 generator_loss.backward()
 
                 self.image_generator_optimizer.step()
+                print("Epoch: %d, generator_loss= %f, discriminator_loss= %f" %
+                      (epoch, generator_loss.data, discriminator_loss.data))
 
     def train_fake_sentence_gan(self):
         bce_loss = nn.BCELoss()
@@ -167,6 +171,8 @@ class Trainer(object):
                 generator_loss.backward()
 
                 self.sentence_generator_optimizer.step()
+                print("Epoch: %d, generator_loss= %f, discriminator_loss= %f" %
+                      (epoch, generator_loss.data, discriminator_loss.data))
 
     def train_matching_gan(self):
         margin_ranking_loss = nn.MarginRankingLoss(self.margin)
@@ -205,8 +211,9 @@ class Trainer(object):
                 discriminator_loss.backward()
 
                 self.match_discriminator_optimizer.step()
+                print("Epoch: %d, discriminator_loss= %f" % (epoch, discriminator_loss.data))
 
     def train(self):
         # self.train_fake_image_gan()
-        self.train_fake_sentence_gan()
+        # self.train_fake_sentence_gan()
         self.train_matching_gan()
