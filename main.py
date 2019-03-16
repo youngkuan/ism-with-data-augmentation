@@ -7,8 +7,9 @@ if __name__ == '__main__':
     arguments = {}
 
     arguments['epochs'] = 8
-    arguments['batch_size'] = 32
-    arguments['learning_rate'] = 0.01
+    arguments['batch_size'] = 4
+    arguments['num_workers'] = 0
+    arguments['learning_rate'] = 0.001
     arguments['beta1'] = 0.5
     arguments['l1_coef'] = 1
     arguments['margin'] = 0.5
@@ -18,7 +19,7 @@ if __name__ == '__main__':
 
     # 文本编码参数（sentence encoder）
     # 词向量维度
-    arguments['word_dimension'] = 300
+    arguments['word_dimension'] = 512
     # 文本编码维度
     arguments['hidden_size'] = 512
 
@@ -31,12 +32,12 @@ if __name__ == '__main__':
     arguments['num_channels'] = 3
 
     # 下采样参数
-    arguments['image_feature_size'] = 4096
+    arguments['image_feature_size'] = 512
 
     # 文本解码参数
     arguments['hidden_size'] = 512
-    arguments['embed_size'] = arguments['image_feature_size']
     arguments['num_layers'] = 1
+    arguments["sentence_embedding_size"] = arguments['hidden_size']
 
 
 

@@ -12,6 +12,8 @@
 import torch
 import torch.nn as nn
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
 
 class SentenceEncoder(nn.Module):
 
@@ -19,15 +21,19 @@ class SentenceEncoder(nn.Module):
         # init all parameters
         super(SentenceEncoder, self).__init__()
         self.hidden_size = arguments['hidden_size']
-        self.input_size = arguments['word_number']
+        self.word_dimension = arguments['word_dimension']
+        self.batch_size = arguments['batch_size']
 
-        self.embedding = nn.Embedding(arguments['word_number'], self.input_size)
-        self.gru = nn.GRU(self.input_size, self.hidden_size)
+        self.embedding = nn.Embedding(arguments['word_number'], self.word_dimension)
+        self.gru = nn.GRU(self.word_dimension, self.hidden_size,batch_first=True)
+        self.sentence_max_length = arguments['sentence_max_length']
 
-    def forward(self, input):
-        embedded = self.embedding(input).view(1, 1, -1)
-        output, hidden = self.gru(embedded, None)
-        return output
+    def forward(self, input, encoder_hidden):
+        embedded = self.embedding(input)
 
-    def initHidden(self, device):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
+        output, hidden = self.gru(embedded, encoder_hidden)
+        hidden = torch.squeeze(hidden)
+        return hidden
+
+    def initHidden(self):
+        return torch.zeros(1 , self.batch_size, self.hidden_size, device=device)

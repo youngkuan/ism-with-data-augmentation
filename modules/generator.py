@@ -17,10 +17,10 @@ class SentenceGenerator(nn.Module):
 
         self.sentence_decoder_block = SentenceDecoder(arguments)
 
-    def forward(self, images, captions, lengths):
+    def forward(self, images):
         image_features = self.downsapmle_block(images)
 
-        outputs = self.sentence_decoder_block(image_features, captions, lengths)
+        outputs = self.sentence_decoder_block(image_features)
 
         return outputs
 
@@ -31,10 +31,11 @@ class ImageGenerator(nn.Module):
         super(ImageGenerator, self).__init__()
         self.noise_dim = arguments['noise_dim']
         self.sentence_encoder_block = SentenceEncoder(arguments)
+        self.encoder_hidden = self.sentence_encoder_block.initHidden()
         self.upsample_block = UpsampleNetwork(arguments)
 
     def forward(self, sentence):
-        sentence_embedding = self.sentence_encoder_block(sentence)
+        sentence_embedding = self.sentence_encoder_block(sentence,self.encoder_hidden)
         noise = torch.randn(sentence_embedding.size(0), self.noise_dim).cuda()
 
         # size: batch_size x sentence_embedding
@@ -42,7 +43,6 @@ class ImageGenerator(nn.Module):
         # size: batch_size x sentence_embedding x 1 x 1
 
         noise = noise.unsqueeze(2).unsqueeze(3)
-
         concat_embedding = torch.cat([sentence_embedding, noise], 1)
 
         image = self.upsample_block(concat_embedding)

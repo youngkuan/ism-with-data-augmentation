@@ -5,7 +5,7 @@
 
 import torch
 import torch.nn as nn
-
+from torch.utils.data import DataLoader
 from datasets import FakeImageDataLoader,FakeSentenceDataLoader,MatchDataLoader
 from loss import RankingLoss, FakeImageLoss, FakeSentenceLoss
 from modules.discrminator import FakeImageDiscriminator, FakeSentenceDiscriminator, MatchDiscriminator
@@ -18,34 +18,39 @@ class Trainer(object):
 
         self.epochs = arguments['epochs']
         self.batch_size = arguments['batch_size']
+        self.num_workers = arguments['num_workers']
         self.learning_rate = arguments['learning_rate']
         self.beta1 = arguments['beta1']
         self.l1_coef = arguments['l1_coef']
         self.margin = arguments['margin']
 
         # data loader
-        self.fake_image_data_loader = FakeImageDataLoader(arguments)
-        self.fake_sentence_data_loader = FakeSentenceDataLoader(arguments)
-        self.match_data_loader = MatchDataLoader(arguments)
+        self.fake_image_data_set = FakeImageDataLoader(arguments)
+        self.fake_image_data_loader = DataLoader(self.fake_image_data_set, batch_size=self.batch_size, shuffle=True,
+                                      num_workers=self.num_workers)
+
+        self.fake_sentence_data_set = FakeSentenceDataLoader(arguments)
+        self.fake_sentence_data_loader = DataLoader(self.fake_sentence_data_set, batch_size=self.batch_size, shuffle=True,
+                                                 num_workers=self.num_workers)
+
+        self.match_data_set = MatchDataLoader(arguments)
+        self.match_data_loader = DataLoader(self.match_data_set, batch_size=self.batch_size,
+                                                    shuffle=True,
+                                                    num_workers=self.num_workers)
 
         # 图像生成器
-        image_generator = ImageGenerator(arguments)
-        self.image_generator = torch.nn.DataParallel(image_generator.cuda())
+        self.image_generator = ImageGenerator(arguments).cuda()
         # 文本生成器
-        sentence_generator = SentenceGenerator(arguments)
-        self.sentence_generator = torch.nn.DataParallel(sentence_generator.cuda())
+        self.sentence_generator = SentenceGenerator(arguments).cuda()
 
         # 合成图像判别器
-        fake_image_discriminator = FakeImageDiscriminator(arguments)
-        self.fake_image_discriminator = torch.nn.DataParallel(fake_image_discriminator.cuda())
+        self.fake_image_discriminator = FakeImageDiscriminator(arguments).cuda()
 
         # 合成文本判别器
-        fake_sentence_discriminator = FakeSentenceDiscriminator(arguments)
-        self.fake_sentence_discriminator = torch.nn.DataParallel(fake_sentence_discriminator.cuda())
+        self.fake_sentence_discriminator = FakeSentenceDiscriminator(arguments).cuda()
 
         # 图像文本匹配判别器
-        match_discriminator = MatchDiscriminator(arguments)
-        self.match_discriminator = torch.nn.DataParallel(match_discriminator.cuda())
+        self.match_discriminator = MatchDiscriminator(arguments).cuda()
 
         # 损失函数
         self.ranking_loss = RankingLoss(arguments)
@@ -79,13 +84,14 @@ class Trainer(object):
                 matched_images = torch.tensor(matched_images, requires_grad=False).cuda()
                 unmatched_images = torch.tensor(unmatched_images, requires_grad=False).cuda()
 
-                real_labels = torch.ones(matched_images.size(0))
-                fake_labels = torch.zeros(matched_images.size(0))
+                real_labels = torch.ones(matched_images.size(0)).cuda()
+                fake_labels = torch.zeros(matched_images.size(0)).cuda()
 
                 # 更新判别器
                 self.fake_image_discriminator_optimizer.zero_grad()
                 # 计算损失
                 fake_images = self.image_generator(sentences)
+
                 matched_scores = self.fake_image_discriminator(matched_images, sentences)
                 unmatched_scores = self.fake_image_discriminator(unmatched_images, sentences)
                 fake_scores = self.fake_image_discriminator(fake_images, sentences)
@@ -126,14 +132,14 @@ class Trainer(object):
                 matched_sentences = torch.tensor(matched_sentences, requires_grad=False).cuda()
                 unmatched_sentences = torch.tensor(unmatched_sentences, requires_grad=False).cuda()
 
-                real_labels = torch.ones(images.size(0))
-                fake_labels = torch.zeros(images.size(0))
+                real_labels = torch.ones(images.size(0)).cuda()
+                fake_labels = torch.zeros(images.size(0)).cuda()
 
                 # 更新判别器
                 self.fake_sentence_discriminator_optimizer.zero_grad()
                 # 计算损失
-                lengths = [len(matched_sentence) for matched_sentence in matched_sentences]
-                fake_sentences = self.sentence_generator(images, matched_sentences, lengths)
+                # lengths = [len(matched_sentence) for matched_sentence in matched_sentences]
+                fake_sentences = self.sentence_generator(images)
 
                 matched_scores = self.fake_sentence_discriminator(images, matched_sentences)
                 unmatched_scores = self.fake_sentence_discriminator(images, unmatched_sentences)
@@ -156,7 +162,8 @@ class Trainer(object):
 
                 fake_loss = bce_loss(fake_scores, real_labels)
 
-                generator_loss = fake_loss + self.l1_coef * l1_loss(fake_sentences, matched_sentences)
+                # generator_loss = fake_loss + self.l1_coef * l1_loss(fake_sentences, matched_sentences)
+                generator_loss = fake_loss
                 generator_loss.backward()
 
                 self.sentence_generator_optimizer.step()
@@ -188,7 +195,7 @@ class Trainer(object):
                 fake_image_scores = self.match_discriminator(fake_images, sentences)
                 fake_sentence_scores = self.match_discriminator(images, fake_sentences)
 
-                real_labels = torch.ones(images.size(0))
+                real_labels = torch.ones(images.size(0)).cuda()
                 loss1 = margin_ranking_loss(matching_scores, unmatched_sentence_scores, real_labels)
                 loss2 = margin_ranking_loss(matching_scores, unmatched_image_scores, real_labels)
                 loss3 = margin_ranking_loss(fake_image_scores, unmatched_image_scores, real_labels)
@@ -200,6 +207,6 @@ class Trainer(object):
                 self.match_discriminator_optimizer.step()
 
     def train(self):
-        self.train_fake_image_gan()
+        # self.train_fake_image_gan()
         self.train_fake_sentence_gan()
         self.train_matching_gan()
