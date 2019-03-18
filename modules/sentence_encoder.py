@@ -25,14 +25,14 @@ class SentenceEncoder(nn.Module):
         self.batch_size = arguments['batch_size']
 
         self.embedding = nn.Embedding(arguments['word_number'], self.word_dimension)
-        self.gru = nn.GRU(self.word_dimension, self.hidden_size,batch_first=True)
+        self.gru = nn.GRU(self.word_dimension, self.hidden_size, batch_first=True)
         self.sentence_max_length = arguments['sentence_max_length']
 
-    def forward(self, input, encoder_hidden):
+    def forward(self, input, hidden):
         embedded = self.embedding(input)
-        output, hidden = self.gru(embedded, encoder_hidden)
+        output, hidden = self.gru(embedded, hidden)
         hidden = torch.squeeze(hidden)
         return hidden
 
     def initHidden(self):
-        return torch.zeros(1 , self.batch_size, self.hidden_size, device=device)
+        return torch.zeros(1, self.batch_size, self.hidden_size, device=device)

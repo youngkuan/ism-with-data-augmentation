@@ -15,6 +15,8 @@ from modules.discrminator import FakeImageDiscriminator, FakeSentenceDiscriminat
 from modules.generator import ImageGenerator, SentenceGenerator
 from utils import save_image,save_sentence,convert_indexes2sentence
 
+cuda0 = torch.device('cuda:0')
+cuda1 = torch.device('cuda:1')
 
 class Trainer(object):
 
@@ -44,15 +46,15 @@ class Trainer(object):
                                             num_workers=self.num_workers)
 
         # 图像生成器
-        self.image_generator = ImageGenerator(arguments).cuda()
+        self.image_generator = ImageGenerator(arguments).cuda(device=cuda0)
         # 文本生成器
-        self.sentence_generator = SentenceGenerator(arguments).cuda()
+        self.sentence_generator = SentenceGenerator(arguments).cuda(device=cuda1)
 
         # 合成图像判别器
-        self.fake_image_discriminator = FakeImageDiscriminator(arguments).cuda()
+        self.fake_image_discriminator = FakeImageDiscriminator(arguments).cuda(device=cuda0)
 
         # 合成文本判别器
-        self.fake_sentence_discriminator = FakeSentenceDiscriminator(arguments).cuda()
+        self.fake_sentence_discriminator = FakeSentenceDiscriminator(arguments).cuda(device=cuda1)
 
         # 图像文本匹配判别器
         self.match_discriminator = MatchDiscriminator(arguments).cuda()
@@ -90,12 +92,12 @@ class Trainer(object):
                 matched_images = sample['matched_images']
                 unmatched_images = sample['unmatched_images']
 
-                sentences = torch.tensor(sentences, requires_grad=False).cuda()
-                matched_images = torch.tensor(matched_images, requires_grad=False).cuda()
-                unmatched_images = torch.tensor(unmatched_images, requires_grad=False).cuda()
+                sentences = torch.tensor(sentences, requires_grad=False).cuda(device=cuda0)
+                matched_images = torch.tensor(matched_images, requires_grad=False).cuda(device=cuda0)
+                unmatched_images = torch.tensor(unmatched_images, requires_grad=False).cuda(device=cuda0)
 
-                real_labels = torch.ones(matched_images.size(0)).cuda()
-                fake_labels = torch.zeros(matched_images.size(0)).cuda()
+                real_labels = torch.ones(matched_images.size(0)).cuda(device=cuda0)
+                fake_labels = torch.zeros(matched_images.size(0)).cuda(device=cuda0)
 
                 # 更新判别器
                 for param in self.image_generator.parameters():
@@ -146,8 +148,9 @@ class Trainer(object):
             fake_images = self.image_generator(val_sentences)
             index = 0
             for val_image, fake_image in zip(val_images, fake_images):
-                save_image(val_image,self.arguments['synthetic_image_path'],"val_"+index+".jpg")
-                save_image(fake_image,self.arguments['synthetic_image_path'],"fake_"+index+".jpg")
+                save_image(val_image,self.arguments['synthetic_image_path'],"val_"+str(index)+".jpg")
+                save_image(fake_image,self.arguments['synthetic_image_path'],"fake_"+str(index)+".jpg")
+                index = index+1
 
     def train_fake_sentence_gan(self):
         bce_loss = nn.BCELoss()
@@ -159,12 +162,12 @@ class Trainer(object):
                 matched_sentences = sample['matched_sentences']
                 unmatched_sentences = sample['unmatched_sentences']
 
-                images = torch.tensor(images, requires_grad=False).cuda()
-                matched_sentences = torch.tensor(matched_sentences, requires_grad=False).cuda()
-                unmatched_sentences = torch.tensor(unmatched_sentences, requires_grad=False).cuda()
+                images = torch.tensor(images, requires_grad=False).cuda(device=cuda1)
+                matched_sentences = torch.tensor(matched_sentences, requires_grad=False).cuda(device=cuda1)
+                unmatched_sentences = torch.tensor(unmatched_sentences, requires_grad=False).cuda(device=cuda1)
 
-                real_labels = torch.ones(images.size(0)).cuda()
-                fake_labels = torch.zeros(images.size(0)).cuda()
+                real_labels = torch.ones(images.size(0)).cuda(device=cuda1)
+                fake_labels = torch.zeros(images.size(0)).cuda(device=cuda1)
 
                 # 更新判别器
                 self.fake_sentence_discriminator_optimizer.zero_grad()

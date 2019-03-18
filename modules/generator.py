@@ -31,11 +31,12 @@ class ImageGenerator(nn.Module):
         super(ImageGenerator, self).__init__()
         self.noise_dim = arguments['noise_dim']
         self.sentence_encoder_block = SentenceEncoder(arguments)
-        self.encoder_hidden = self.sentence_encoder_block.initHidden()
+        # self.encoder_hidden = self.sentence_encoder_block.initHidden()
+        self.encoder_hidden = None
         self.upsample_block = UpsampleNetwork(arguments)
 
     def forward(self, sentence):
-        sentence_embedding = self.sentence_encoder_block(sentence,self.encoder_hidden)
+        sentence_embedding = self.sentence_encoder_block(sentence, self.encoder_hidden)
         noise = torch.randn(sentence_embedding.size(0), self.noise_dim).cuda()
 
         # size: batch_size x sentence_embedding

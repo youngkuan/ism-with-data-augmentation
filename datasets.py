@@ -98,10 +98,11 @@ class FakeImageDataLoader(Dataset):
             sentence = line.split("\t")[1]
             matched_image_id = line.split("#")[0]
 
-            unmatched_index = random.randint(0, len(lines))
+            unmatched_index = random.randint(0, len(lines)-1)
             while abs(unmatched_index - index) < 10:
-                unmatched_index = random.randint(0, len(lines))
+                unmatched_index = random.randint(0, len(lines)-1)
 
+            # print "unmatched_index: ",unmatched_index
             unmatched_image_id = lines[unmatched_index].split("#")[0]
 
         matched_image = read_image(self.image_path, matched_image_id)
@@ -146,9 +147,9 @@ class FakeSentenceDataLoader(Dataset):
             image_id = line.split("#")[0]
             matched_sentence = line.split("\t")[1]
 
-            unmatched_index = random.randint(0, len(lines))
+            unmatched_index = random.randint(0, len(lines)-1)
             while abs(unmatched_index - index) < 10:
-                unmatched_index = random.randint(0, len(lines))
+                unmatched_index = random.randint(0, len(lines)-1)
 
             unmatched_sentence = lines[unmatched_index].split("\t")[1]
 
@@ -197,9 +198,9 @@ class MatchDataLoader(Dataset):
             image_id = line.split("#")[0]
             sentence = line.split("\t")[1]
 
-            unmatched_index = random.randint(0, len(lines))
+            unmatched_index = random.randint(0, len(lines)-1)
             while abs(unmatched_index - index) < 10:
-                unmatched_index = random.randint(0, len(lines))
+                unmatched_index = random.randint(0, len(lines)-1)
 
             unmatched_image_id = lines[unmatched_index].split("#")[0]
             unmatched_sentence = lines[unmatched_index].split("\t")[1]
