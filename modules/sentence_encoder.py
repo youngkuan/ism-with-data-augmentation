@@ -30,7 +30,6 @@ class SentenceEncoder(nn.Module):
 
     def forward(self, input, encoder_hidden):
         embedded = self.embedding(input)
-
         output, hidden = self.gru(embedded, encoder_hidden)
         hidden = torch.squeeze(hidden)
         return hidden

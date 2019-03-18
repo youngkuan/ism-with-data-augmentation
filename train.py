@@ -8,15 +8,17 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from datasets import FakeImageDataLoader, FakeSentenceDataLoader, MatchDataLoader
+from datasets import load_validation_set
+from evaluation import i2t, t2i
 from loss import RankingLoss, FakeImageLoss, FakeSentenceLoss
 from modules.discrminator import FakeImageDiscriminator, FakeSentenceDiscriminator, MatchDiscriminator
 from modules.generator import ImageGenerator, SentenceGenerator
+from utils import save_image,save_sentence,convert_indexes2sentence
 
 
 class Trainer(object):
 
     def __init__(self, arguments):
-
         self.epochs = arguments['epochs']
         self.batch_size = arguments['batch_size']
         self.num_workers = arguments['num_workers']
@@ -24,6 +26,7 @@ class Trainer(object):
         self.beta1 = arguments['beta1']
         self.l1_coef = arguments['l1_coef']
         self.margin = arguments['margin']
+        self.arguments = arguments
 
         # data loader
         self.fake_image_data_set = FakeImageDataLoader(arguments)
@@ -60,17 +63,22 @@ class Trainer(object):
         self.fake_sentence_loss = FakeSentenceLoss(arguments)
 
         # 优化器
-        self.image_generator_optimizer = torch.optim.Adam(self.image_generator.parameters()
-                                                          , self.learning_rate, (self.beta1, 0.999))
-        self.sentence_generator_optimizer = torch.optim.Adam(self.sentence_generator.parameters()
-                                                             , self.learning_rate, (self.beta1, 0.999))
+        self.image_generator_optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, self.image_generator.parameters())
+            , self.learning_rate, (self.beta1, 0.999))
+        self.sentence_generator_optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, self.sentence_generator.parameters())
+            , self.learning_rate, (self.beta1, 0.999))
 
-        self.fake_image_discriminator_optimizer = torch.optim.Adam(self.fake_image_discriminator.parameters()
-                                                                   , self.learning_rate, (self.beta1, 0.999))
-        self.fake_sentence_discriminator_optimizer = torch.optim.Adam(self.fake_sentence_discriminator.parameters()
-                                                                      , self.learning_rate, (self.beta1, 0.999))
-        self.match_discriminator_optimizer = torch.optim.Adam(self.match_discriminator.parameters()
-                                                              , self.learning_rate, (self.beta1, 0.999))
+        self.fake_image_discriminator_optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, self.fake_image_discriminator.parameters())
+            , self.learning_rate, (self.beta1, 0.999))
+        self.fake_sentence_discriminator_optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, self.fake_sentence_discriminator.parameters())
+            , self.learning_rate, (self.beta1, 0.999))
+        self.match_discriminator_optimizer = torch.optim.Adam(
+            filter(lambda p: p.requires_grad, self.match_discriminator.parameters())
+            , self.learning_rate, (self.beta1, 0.999))
 
     def train_fake_image_gan(self):
         bce_loss = nn.BCELoss()
@@ -90,6 +98,10 @@ class Trainer(object):
                 fake_labels = torch.zeros(matched_images.size(0)).cuda()
 
                 # 更新判别器
+                for param in self.image_generator.parameters():
+                    param.requires_grad = False
+                for param in self.fake_image_discriminator.parameters():
+                    param.requires_grad = True
                 self.fake_image_discriminator_optimizer.zero_grad()
                 # 计算损失
                 fake_images = self.image_generator(sentences)
@@ -108,6 +120,11 @@ class Trainer(object):
                 self.fake_image_discriminator_optimizer.step()
 
                 # 更新生成器
+                for param in self.image_generator.parameters():
+                    param.requires_grad = True
+                for param in self.fake_image_discriminator.parameters():
+                    param.requires_grad = False
+
                 self.image_generator_optimizer.zero_grad()
 
                 fake_images = self.image_generator(sentences)
@@ -121,6 +138,16 @@ class Trainer(object):
                 self.image_generator_optimizer.step()
                 print("Epoch: %d, generator_loss= %f, discriminator_loss= %f" %
                       (epoch, generator_loss.data, discriminator_loss.data))
+
+
+            val_images, val_sentences = load_validation_set(self.arguments)
+            val_sentences = torch.tensor(val_sentences[:10], requires_grad=False).cuda()
+            val_images = torch.tensor(val_images[:10], requires_grad=False).cuda()
+            fake_images = self.image_generator(val_sentences)
+            index = 0
+            for val_image, fake_image in zip(val_images, fake_images):
+                save_image(val_image,self.arguments['synthetic_image_path'],"val_"+index+".jpg")
+                save_image(fake_image,self.arguments['synthetic_image_path'],"fake_"+index+".jpg")
 
     def train_fake_sentence_gan(self):
         bce_loss = nn.BCELoss()
@@ -174,6 +201,15 @@ class Trainer(object):
                 print("Epoch: %d, generator_loss= %f, discriminator_loss= %f" %
                       (epoch, generator_loss.data, discriminator_loss.data))
 
+            val_images, val_sentences = load_validation_set(self.arguments)
+            val_sentences = torch.tensor(val_sentences[:10], requires_grad=False).cuda()
+            val_images = torch.tensor(val_images[:10], requires_grad=False).cuda()
+
+            fake_sentences = self.sentence_generator(val_images)
+            fake_sentences = fake_sentences.cpu().numpy()
+            fake_sentences = convert_indexes2sentence(self.arguments['idx2word'],fake_sentences)
+            save_sentence(val_sentences,fake_sentences,self.arguments['synthetic_sentence_path'])
+
     def train_matching_gan(self):
         margin_ranking_loss = nn.MarginRankingLoss(self.margin)
 
@@ -213,7 +249,17 @@ class Trainer(object):
                 self.match_discriminator_optimizer.step()
                 print("Epoch: %d, discriminator_loss= %f" % (epoch, discriminator_loss.data))
 
+            val_images, val_sentences = load_validation_set(self.arguments)
+            val_sentences = torch.tensor(val_sentences, requires_grad=False).cuda()
+            val_images = torch.tensor(val_images, requires_grad=False).cuda()
+            i2t_r1, i2t_r5, i2t_r10, i2t_medr = i2t(self.match_discriminator, val_images, val_sentences)
+            t2i_r1, t2i_r5, t2i_r10, t2i_medr = t2i(self.match_discriminator, val_sentences, val_images)
+            print "Image to Text: %.2f, %.2f, %.2f, %.2f" \
+                  % (i2t_r1, i2t_r5, i2t_r10, i2t_medr)
+            print "Text to Image: %.2f, %.2f, %.2f, %.2f" \
+                  % (t2i_r1, t2i_r5, t2i_r10, t2i_medr)
+
     def train(self):
-        # self.train_fake_image_gan()
-        # self.train_fake_sentence_gan()
+        self.train_fake_image_gan()
+        self.train_fake_sentence_gan()
         self.train_matching_gan()

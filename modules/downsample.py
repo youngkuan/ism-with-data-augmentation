@@ -23,6 +23,12 @@ class DownsampleNetwork(nn.Module):
         self.resnet = nn.Sequential(*modules)
         self.linear = nn.Linear(resnet.fc.in_features, self.image_feature_size)
         self.bn = nn.BatchNorm1d(self.image_feature_size, momentum=0.01)
+        self.init_weights()
+
+    def init_weights(self):
+        # weight init, inspired by tutorial
+        self.linear.weight.data.normal_(0, 0.02)
+        self.linear.bias.data.fill_(0)
 
     def forward(self, images):
         """Extract feature vectors from input images."""

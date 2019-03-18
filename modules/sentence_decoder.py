@@ -28,6 +28,11 @@ class SentenceDecoder(nn.Module):
 
         self.max_seg_length = arguments['max_seq_length']
         self.sentence_max_length = arguments['sentence_max_length']
+        self.init_weights()
+
+    def init_weights(self):
+        self.linear.weight.data.normal_(0, 0.02)
+        self.linear.bias.data.fill_(0)
 
     def forward_origin(self, features, captions, lengths):
         """Decode image feature vectors and generates captions."""

@@ -9,16 +9,32 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
-from torchvision.models import resnet152
 
-from utils import build_dictionary
+
+def split_train_validation_set(sentence_path, train_path, val_path, val_number=500):
+    """
+    拆分训练集和验证集，并保存到文件
+    :param sentence_path:
+    :param train_path
+    :param val_path:
+    :param val_number:
+    :return:
+    """
+    with open(sentence_path, 'rb') as f:
+        lines = f.readlines()
+        validation_set = lines[:val_number]
+        train_set = lines[val_number:]
+    with open(train_path, 'w') as train_file:
+        train_file.writelines(train_set)
+    with open(val_path, 'w') as val_file:
+        val_file.writelines(validation_set)
 
 
 def read_image(image_path, image_id):
     image_path = os.path.join(image_path, image_id)
     image = Image.open(image_path).resize((224, 224))
     image = np.array(image)
-    return np.transpose(image,(2,0,1))
+    return np.transpose(image, (2, 0, 1))
 
 
 def read_sentences(sentence_path):
@@ -29,20 +45,46 @@ def read_sentences(sentence_path):
     return sentences
 
 
+def load_validation_set(arguments):
+    word2idx = arguments["word2idx"]
+    word_number = arguments['word_number']
+    sentence_max_length = arguments['sentence_max_length']
+    image_path = arguments['image_path']
+    sentence_path = arguments['val_sentence_path']
+    sentences = []
+    images = []
+    last_image_id = ""
+    with open(sentence_path, 'rb') as f:
+        for line in f:
+            sentence = line.split("\t")[1]
+            sentence = [word2idx[w] if word2idx[w] < word_number else 1 for w in sentence.split()]
+            x = np.zeros(sentence_max_length).astype('int64')
+            x[:len(sentence)] = sentence
+            sentences.append(x)
+
+            image_id = line.split("#")[0]
+            if last_image_id != image_id:
+                image = read_image(image_path, image_id)
+                images.append(image)
+                last_image_id = image_id
+    # n * 3*224*224
+    images = np.stack(images, 0)
+    # 5n * sentence_max_length
+    sentences = np.stack(sentences, 0)
+
+    return torch.FloatTensor(images), torch.LongTensor(sentences)
+
+
 class FakeImageDataLoader(Dataset):
     def __init__(self, arguments):
         self.image_path = arguments['image_path']
-        self.sentence_path = arguments['sentence_path']
+        self.sentence_path = arguments['train_sentence_path']
 
-        self.sentences = read_sentences(self.sentence_path)
-        self.word_dictionary, self.idx2word, self.lengths = build_dictionary(self.sentences)
-        self.word_number = len(self.word_dictionary)
-
-        arguments['word_dictionary'] = self.word_dictionary
-        arguments['idx2word'] = self.word_dictionary
-        arguments['word_number'] = self.word_number
-        self.sentence_max_length = np.max(self.lengths) + 1
-        arguments['sentence_max_length'] = self.sentence_max_length
+        self.word2idx = arguments['word2idx']
+        self.idx2word = arguments['idx2word']
+        self.lengths = arguments['lengths']
+        self.word_number = arguments['word_number']
+        self.sentence_max_length = arguments['sentence_max_length']
 
     def __len__(self):
         with open(self.sentence_path, 'rb') as f:
@@ -65,7 +107,7 @@ class FakeImageDataLoader(Dataset):
         matched_image = read_image(self.image_path, matched_image_id)
         unmatched_image = read_image(self.image_path, unmatched_image_id)
 
-        sentence = [self.word_dictionary[w] if self.word_dictionary[w] < self.word_number else 1 for w in
+        sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
                     sentence.split()]
         x = np.zeros(self.sentence_max_length).astype('int64')
         x[:len(sentence)] = sentence
@@ -83,19 +125,13 @@ class FakeImageDataLoader(Dataset):
 class FakeSentenceDataLoader(Dataset):
     def __init__(self, arguments):
         self.image_path = arguments['image_path']
-        self.sentence_path = arguments['sentence_path']
+        self.sentence_path = arguments['train_sentence_path']
 
-        self.sentences = read_sentences(self.sentence_path)
-        self.word_dictionary, self.idx2word, self.lengths = build_dictionary(self.sentences)
-        self.word_number = len(self.word_dictionary)
-
-        arguments['word_dictionary'] = self.word_dictionary
-        arguments['idx2word'] = self.word_dictionary
-        arguments['word_number'] = self.word_number
-        arguments['max_seq_length'] = self.word_number
-
-        self.sentence_max_length = np.max(self.lengths) + 1
-        arguments['sentence_max_length'] = self.sentence_max_length
+        self.word2idx = arguments['word2idx']
+        self.idx2word = arguments['idx2word']
+        self.lengths = arguments['lengths']
+        self.word_number = arguments['word_number']
+        self.sentence_max_length = arguments['sentence_max_length']
 
     def __len__(self):
         with open(self.sentence_path, 'rb') as f:
@@ -118,12 +154,12 @@ class FakeSentenceDataLoader(Dataset):
 
         image = read_image(self.image_path, image_id)
 
-        matched_sentence = [self.word_dictionary[w] if self.word_dictionary[w] < self.word_number else 1 for w in
+        matched_sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
                             matched_sentence.split()]
         matched_x = np.zeros(self.sentence_max_length).astype('int64')
         matched_x[:len(matched_sentence)] = matched_sentence
 
-        unmatched_sentence = [self.word_dictionary[w] if self.word_dictionary[w] < self.word_number else 1 for w in
+        unmatched_sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
                               unmatched_sentence.split()]
         unmatched_x = np.zeros(self.sentence_max_length).astype('int64')
         unmatched_x[:len(unmatched_sentence)] = unmatched_sentence
@@ -140,18 +176,13 @@ class FakeSentenceDataLoader(Dataset):
 class MatchDataLoader(Dataset):
     def __init__(self, arguments):
         self.image_path = arguments['image_path']
-        self.sentence_path = arguments['sentence_path']
+        self.sentence_path = arguments['train_sentence_path']
 
-        self.sentences = read_sentences(self.sentence_path)
-        self.word_dictionary, self.idx2word, self.lengths = build_dictionary(self.sentences)
-        self.word_number = len(self.word_dictionary)
-
-        arguments['word_dictionary'] = self.word_dictionary
-        arguments['idx2word'] = self.word_dictionary
-        arguments['word_number'] = self.word_number
-
-        self.sentence_max_length = np.max(self.lengths) + 1
-        arguments['sentence_max_length'] = self.sentence_max_length
+        self.word2idx = arguments['word2idx']
+        self.idx2word = arguments['idx2word']
+        self.lengths = arguments['lengths']
+        self.word_number = arguments['word_number']
+        self.sentence_max_length = arguments['sentence_max_length']
 
     def __len__(self):
         with open(self.sentence_path, 'rb') as f:
@@ -176,13 +207,13 @@ class MatchDataLoader(Dataset):
         image = read_image(self.image_path, image_id)
         unmatched_image = read_image(self.image_path, unmatched_image_id)
 
-        sentence = [self.word_dictionary[w] if self.word_dictionary[w] < self.word_number else 1 for w in
+        sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
                     sentence.split()]
 
         x = np.zeros(self.sentence_max_length).astype('int64')
         x[:len(sentence)] = sentence
 
-        unmatched_sentence = [self.word_dictionary[w] if self.word_dictionary[w] < self.word_number else 1 for w in
+        unmatched_sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
                               unmatched_sentence.split()]
         unmatched_x = np.zeros(self.sentence_max_length).astype('int64')
         unmatched_x[:len(unmatched_sentence)] = unmatched_sentence
@@ -196,10 +227,3 @@ class MatchDataLoader(Dataset):
         sample['images'] = sample['images'].sub_(127.5).div_(127.5)
         sample['unmatched_images'] = sample['unmatched_images'].sub_(127.5).div_(127.5)
         return sample
-
-if __name__ == '__main__':
-    image = torch.randn(32, 3, 224, 224).cuda()
-    print image.size()
-    resnet = resnet152(pretrained=True).cuda()
-    image_feature  = resnet(image)
-    print image_feature.size()

@@ -38,6 +38,8 @@ class UpsampleNetwork(nn.Module):
         self.upsample3 = self.upsample(self.ngf // 4, self.ngf // 8)
         self.upsample4 = self.upsample(self.ngf // 8, self.ngf // 16)
 
+        self.init_weights()
+
     def conv3x3(self, in_channels, out_channels):
         """
         3x3 convolution with padding
@@ -56,6 +58,22 @@ class UpsampleNetwork(nn.Module):
             self.GLU()
         )
         return block
+
+    def init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm1d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, sentence_embedding, noise=None):
         if noise is not None:

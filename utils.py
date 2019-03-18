@@ -2,8 +2,9 @@
 
 
 from collections import OrderedDict
-
+from PIL import Image
 import numpy
+import torch.nn as nn
 
 
 def build_dictionary(text):
@@ -38,6 +39,41 @@ def build_dictionary(text):
 
     return word2idx, idx2word, lengths
 
+def save_image(image, synthetic_image_path,image_name):
+    im = Image.fromarray(image.data.mul_(127.5).add_(127.5).byte().permute(1, 2, 0).cpu().numpy())
+    im.save('{0}/{1}'.format(synthetic_image_path, image_name))
+
+def save_sentence(val_sentences, fake_sentences, synthetic_sentence_path):
+    with open(synthetic_sentence_path,"w") as f:
+        f.writelines(val_sentences)
+        f.writelines(fake_sentences)
+
+def convert_indexes2sentence(idx2word, sentences_indexes):
+    sentences = []
+    for sentence_indexes in sentences_indexes:
+        words = []
+        for word_id in sentence_indexes:
+            word = idx2word[word_id]
+            words.append(word)
+            if word == '<eos>':
+                break
+        sentence = ' '.join(words)
+        sentences.append(sentence)
+    return sentences
+
+def weights_init(m):
+    classname = m.__class__.__name__
+    if classname.find('Conv') != -1:
+        nn.init.orthogonal(m.weight.data, 1.0)
+    elif classname.find('BatchNorm') != -1:
+        m.weight.data.normal_(1.0, 0.02)
+        m.bias.data.fill_(0)
+    elif classname.find('Linear') != -1:
+        nn.init.orthogonal(m.weight.data, 1.0)
+        if m.bias is not None:
+            m.bias.data.fill_(0.0)
+
+
 
 def prepare_data(caps, worddict, maxlen=None, n_words=10000):
     """
@@ -62,15 +98,16 @@ def prepare_data(caps, worddict, maxlen=None, n_words=10000):
     return x, y
 
 
+
 if __name__ == '__main__':
-    sentences = ["Girl jumping rope in parking lot", "Girl jumping rope in parking lot"
-        , "Girl jumping rope parking", "A child going down an inflatable slide"]
-    word2idx, idx2word = build_dictionary(sentences)
+    # sentences = ["Girl jumping rope in parking lot", "Girl jumping rope in parking lot"
+    #     , "Girl jumping rope parking", "A child going down an inflatable slide"]
+    # word2idx, idx2word = build_dictionary(sentences)
     n_words = 10000
-    print word2idx
-    print idx2word
-    x,y = prepare_data(sentences,word2idx)
-    print x
+    # print word2idx
+    # print idx2word
+    # x,y = prepare_data(sentences,word2idx)
+    # print x
 
     # seqs = []
     # for i, cc in enumerate(sentences):

@@ -77,7 +77,8 @@ class MatchDiscriminator(nn.Module):
             nn.Conv2d(self.image_feature_size + self.sentence_embedding_size, 1, 1, 1, 0, bias=False),
             nn.Sigmoid()
         )
-        self.encoder_hidden = self.sentence_encoder_block.initHidden()
+        # self.encoder_hidden = self.sentence_encoder_block.initHidden()
+        self.encoder_hidden = None
 
     def forward(self, image, sentence):
         image_feature = self.downsample_block(image)
