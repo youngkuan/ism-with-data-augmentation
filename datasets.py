@@ -75,6 +75,42 @@ def load_validation_set(arguments):
     return torch.FloatTensor(images), torch.LongTensor(sentences)
 
 
+def collate_fn(data):
+    """Create mini-batches of (image, caption)
+
+    Custom collate_fn for torch.utils.data.DataLoader is necessary for patting captions
+
+    :param data: list; (image, caption) tuples
+            - image: tensor;    3 x 256 x 256
+            - caption: tensor;  1 x length_caption
+
+    Return: mini-batch
+    :return images: tensor;     batch_size x 3 x 256 x 256
+    :return padded_captions: tensor;    batch_size x length
+    :return caption_lengths: list;      lenghths of actual captions (without padding)
+    """
+
+    # sort data by caption length
+    data.sort(key=lambda x: len(x[1]), reverse=True)
+    images, captions = zip(*data)
+
+    # Merge image tensors (stack)
+    images = torch.stack(images, 0)
+
+    # Merge captions
+    caption_lengths = [len(caption) for caption in captions]
+
+    # zero-matrix num_captions x caption_max_length
+    padded_captions = torch.zeros(len(captions), max(caption_lengths)).long()
+
+    # fill the zero-matrix with captions. the remaining zeros are padding
+    for ix, caption in enumerate(captions):
+        end = caption_lengths[ix]
+        padded_captions[ix, :end] = caption[:end]
+    return images, padded_captions, caption_lengths
+
+
+
 class FakeImageDataLoader(Dataset):
     def __init__(self, arguments):
         self.image_path = arguments['image_path']
@@ -157,21 +193,23 @@ class FakeSentenceDataLoader(Dataset):
 
         matched_sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
                             matched_sentence.split()]
-        matched_x = np.zeros(self.sentence_max_length).astype('int64')
-        matched_x[:len(matched_sentence)] = matched_sentence
+
 
         unmatched_sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
                               unmatched_sentence.split()]
-        unmatched_x = np.zeros(self.sentence_max_length).astype('int64')
-        unmatched_x[:len(unmatched_sentence)] = unmatched_sentence
 
-        sample = {
-            'images': torch.FloatTensor(image),
-            'matched_sentences': torch.LongTensor(matched_x),
-            'unmatched_sentences': torch.LongTensor(unmatched_x)
-        }
-        sample['images'] = sample['images'].sub_(127.5).div_(127.5)
-        return sample
+        # sample = {
+        #     'images': torch.FloatTensor(image),
+        #     'matched_sentences': torch.LongTensor(matched_sentence),
+        #     'unmatched_sentences': torch.LongTensor(unmatched_sentence)
+        # }
+        # sample['images'] = sample['images'].sub_(127.5).div_(127.5)
+        # return sample
+        image = torch.FloatTensor(image)
+        image = image.sub_(127.5).div_(127.5)
+        matched_sentence = torch.LongTensor(matched_sentence)
+        return image,matched_sentence
+
 
 
 class MatchDataLoader(Dataset):

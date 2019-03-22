@@ -5,7 +5,16 @@ from collections import OrderedDict
 from PIL import Image
 import numpy
 import torch.nn as nn
+import torch
+import os
 
+
+
+
+def save_discriminator_checkpoint(discriminator, model_save_path, epoch):
+    if not os.path.exists(model_save_path):
+        os.makedirs(model_save_path)
+    torch.save(discriminator.state_dict(), '{0}/disc_{1}.pth'.format(model_save_path, epoch))
 
 def build_dictionary(text):
     """
@@ -53,7 +62,7 @@ def convert_indexes2sentence(idx2word, sentences_indexes):
     for sentence_indexes in sentences_indexes:
         words = []
         for word_id in sentence_indexes:
-            word = idx2word[word_id]
+            word = idx2word[word_id.item()]
             words.append(word)
             if word == '<eos>':
                 break

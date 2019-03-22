@@ -9,6 +9,8 @@
 # https://github.com/yunjey/pytorch-tutorial
 import torch
 import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -23,7 +25,7 @@ class SentenceDecoder(nn.Module):
         self.batch_size = arguments['batch_size']
 
         self.embedding = nn.Embedding(self.word_number, self.word_dimension)
-        self.lstm = nn.LSTM(self.word_dimension, self.hidden_size, self.num_layers, batch_first=True)
+        self.gru = nn.GRU(self.word_dimension, self.hidden_size, self.num_layers, batch_first=True)
         self.linear = nn.Linear(self.hidden_size, self.word_number)
 
         self.max_seg_length = arguments['max_seq_length']
@@ -34,23 +36,23 @@ class SentenceDecoder(nn.Module):
         self.linear.weight.data.normal_(0, 0.02)
         self.linear.bias.data.fill_(0)
 
-    def forward_origin(self, features, captions, lengths):
+    def forward(self, features, captions, lengths):
         """Decode image feature vectors and generates captions."""
         embeddings = self.embedding(captions)
         embeddings = torch.cat((features.unsqueeze(1), embeddings), 1)
-        # packed = pack_padded_sequence(embeddings, lengths, batch_first=True)
-        #
-        # print "packed: ", packed.size()
-        hiddens, _ = self.lstm(embeddings)
-        outputs = self.linear(hiddens[0])
+
+        packed = pack_padded_sequence(embeddings, lengths, batch_first=True)
+
+        outputs, hidden = self.gru(packed)
+        outputs = self.linear(outputs[0])
         return outputs
 
-    def forward(self, features, states=None):
+    def forward_sample(self, features, states=None):
         """Generate captions for given image features using greedy search."""
         sampled_ids = []
         inputs = features.unsqueeze(1)
         for i in range(self.max_seg_length):
-            hiddens, states = self.lstm(inputs, states)  # hiddens: (batch_size, 1, hidden_size)
+            hiddens, states = self.gru(inputs, states)  # hiddens: (batch_size, 1, hidden_size)
             outputs = self.linear(hiddens.squeeze(1))  # outputs:  (batch_size, vocab_size)
             _, predicted = outputs.max(1)  # predicted: (batch_size)
             sampled_ids.append(predicted)
@@ -67,7 +69,7 @@ class SentenceDecoder(nn.Module):
         sampled_ids = []
         inputs = features.unsqueeze(1)
         for i in range(self.max_seg_length):
-            hiddens, states = self.lstm(inputs, states)  # hiddens: (batch_size, 1, hidden_size)
+            hiddens, states = self.gru(inputs, states)  # hiddens: (batch_size, 1, hidden_size)
             outputs = self.linear(hiddens.squeeze(1))  # outputs:  (batch_size, vocab_size)
             _, predicted = outputs.max(1)  # predicted: (batch_size)
             sampled_ids.append(predicted)

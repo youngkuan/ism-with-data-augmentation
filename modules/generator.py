@@ -17,12 +17,18 @@ class SentenceGenerator(nn.Module):
 
         self.sentence_decoder_block = SentenceDecoder(arguments)
 
-    def forward(self, images):
+    def forward(self, images, sentences, lengths):
         image_features = self.downsapmle_block(images)
 
-        outputs = self.sentence_decoder_block(image_features)
+        outputs = self.sentence_decoder_block(image_features, sentences, lengths)
 
         return outputs
+
+    def generate_features(self,images):
+
+        features = self.downsapmle_block(images)
+
+        return features
 
 
 class ImageGenerator(nn.Module):
