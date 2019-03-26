@@ -8,7 +8,6 @@ import torch
 import torch.nn as nn
 from torch.nn.utils.rnn import pack_padded_sequence
 from torch.utils.data import DataLoader
-
 from datasets import FakeImageDataLoader, FakeSentenceDataLoader, MatchDataLoader
 from datasets import load_validation_set, collate_fn
 from evaluation import i2t, t2i

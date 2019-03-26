@@ -12,7 +12,7 @@ if __name__ == '__main__':
     arguments = {}
 
     arguments['epochs'] = 32
-    arguments['batch_size'] = 64
+    arguments['batch_size'] = 128
     arguments['num_workers'] = 0
     arguments['learning_rate'] = 0.001
     arguments['beta1'] = 0.5
@@ -52,7 +52,7 @@ if __name__ == '__main__':
 
     # 划分训练集和验证集
     split_train_validation_set(arguments['sentence_path'], arguments['train_sentence_path'],
-                               arguments['val_sentence_path'], 1000)
+                               arguments['val_sentence_path'], 200)
     # 建立词典
     sentences = read_sentences(arguments['sentence_path'])
     word2idx, idx2word, lengths = build_dictionary(sentences)
