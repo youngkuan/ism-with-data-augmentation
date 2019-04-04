@@ -6,6 +6,10 @@
 
 import numpy as np
 import torch
+import torchvision.transforms as transforms
+from PIL import Image
+
+from utils import load_discriminator, load_filenames, load_embedding
 
 
 def i2t(discriminator, images, sentences):
@@ -65,6 +69,39 @@ def t2i(discriminator, sentences, images):
     medr = np.floor(np.median(ranks)) + 1
     return r1, r5, r10, medr
 
+
+def evaluate(arguments):
+    model_save_path = arguments["model_save_path"]
+    epoch = arguments['epochs'] - 1
+    image_size = arguments['image_size']
+    image_path = arguments['image_path']
+    val_path = arguments['val_path']
+    embedding_type = 'cnn-rnn'
+
+    match_discriminator = load_discriminator('{0}/disc_{1}.pth'.format(model_save_path, epoch), arguments)
+
+    image_transform = transforms.Compose([
+        transforms.Resize((image_size, image_size), interpolation=3),
+        transforms.ToTensor(),
+        transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+    filenames = load_filenames(val_path)
+    embeddings = load_embedding(val_path, embedding_type)
+
+    images = []
+    for i in range(len(filenames)):
+        image_name = '%s/%s.jpg' % (image_path, filenames[i])
+        image = Image.open(image_name).convert('RGB')
+        images.append(image)
+
+    images = np.array(images, dtype=float)
+    images = image_transform(images)
+    i2t_r1, i2t_r5, i2t_r10, i2t_medr = i2t(match_discriminator, images, embeddings)
+    t2i_r1, t2i_r5, t2i_r10, t2i_medr = t2i(match_discriminator, embeddings, images)
+    print "Image to Text: %.2f, %.2f, %.2f, %.2f" \
+          % (i2t_r1, i2t_r5, i2t_r10, i2t_medr)
+    print "Text to Image: %.2f, %.2f, %.2f, %.2f" \
+          % (t2i_r1, t2i_r5, t2i_r10, t2i_medr)
 
 if __name__ == '__main__':
     print ""

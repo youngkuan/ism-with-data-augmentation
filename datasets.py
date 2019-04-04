@@ -5,264 +5,86 @@
 import os
 import random
 
-import numpy as np
-import torch
-from PIL import Image
 from torch.utils.data import Dataset
 
-
-def split_train_validation_set(sentence_path, train_path, val_path, val_number=500):
-    """
-    拆分训练集和验证集，并保存到文件
-    :param sentence_path:
-    :param train_path
-    :param val_path:
-    :param val_number:
-    :return:
-    """
-    with open(sentence_path, 'rb') as f:
-        lines = f.readlines()
-        validation_set = lines[:val_number]
-        train_set = lines[val_number:]
-    with open(train_path, 'w') as train_file:
-        train_file.writelines(train_set)
-    with open(val_path, 'w') as val_file:
-        val_file.writelines(validation_set)
-
-
-def read_image(image_path, image_id):
-    image_path = os.path.join(image_path, image_id)
-    image = Image.open(image_path).resize((224, 224))
-    image = np.array(image)
-    return np.transpose(image, (2, 0, 1))
-
-
-def read_sentences(sentence_path):
-    sentences = []
-    with open(sentence_path, 'rb') as f:
-        for line in f:
-            sentences.append(line.split("\t")[1])
-    return sentences
-
-
-def load_validation_set(arguments):
-    word2idx = arguments["word2idx"]
-    word_number = arguments['word_number']
-    sentence_max_length = arguments['sentence_max_length']
-    image_path = arguments['image_path']
-    sentence_path = arguments['val_sentence_path']
-    sentences = []
-    images = []
-    last_image_id = ""
-    with open(sentence_path, 'rb') as f:
-        for line in f:
-            sentence = line.split("\t")[1]
-            sentence = [word2idx[w] if word2idx[w] < word_number else 1 for w in sentence.split()]
-            x = np.zeros(sentence_max_length).astype('int64')
-            x[:len(sentence)] = sentence
-            sentences.append(x)
-
-            image_id = line.split("#")[0]
-            if last_image_id != image_id:
-                image = read_image(image_path, image_id)
-                images.append(image)
-                last_image_id = image_id
-    # n * 3*224*224
-    images = np.stack(images, 0)
-    # 5n * sentence_max_length
-    sentences = np.stack(sentences, 0)
-
-    return torch.FloatTensor(images), torch.LongTensor(sentences)
-
-
-def collate_fn(data):
-    """Create mini-batches of (image, caption)
-
-    Custom collate_fn for torch.utils.data.DataLoader is necessary for patting captions
-
-    :param data: list; (image, caption) tuples
-            - image: tensor;    3 x 256 x 256
-            - caption: tensor;  1 x length_caption
-
-    Return: mini-batch
-    :return images: tensor;     batch_size x 3 x 256 x 256
-    :return padded_captions: tensor;    batch_size x length
-    :return caption_lengths: list;      lenghths of actual captions (without padding)
-    """
-
-    # sort data by caption length
-    data.sort(key=lambda x: len(x[1]), reverse=True)
-    images, captions = zip(*data)
-
-    # Merge image tensors (stack)
-    images = torch.stack(images, 0)
-
-    # Merge captions
-    caption_lengths = [len(caption) for caption in captions]
-
-    # zero-matrix num_captions x caption_max_length
-    padded_captions = torch.zeros(len(captions), max(caption_lengths)).long()
-
-    # fill the zero-matrix with captions. the remaining zeros are padding
-    for ix, caption in enumerate(captions):
-        end = caption_lengths[ix]
-        padded_captions[ix, :end] = caption[:end]
-    return images, padded_captions, caption_lengths
-
+from utils import get_image, load_filenames, load_embedding, load_class_id
 
 
 class FakeImageDataLoader(Dataset):
-    def __init__(self, arguments):
-        self.image_path = arguments['image_path']
-        self.sentence_path = arguments['train_sentence_path']
+    def __init__(self, arguments, transform=None, embedding_type='cnn-rnn'):
+        self.data_dir = arguments['data_dir']
+        self.image_path = os.path.join(self.data_dir, "images")
+        self.train_path = os.path.join(self.data_dir, "train")
+        self.embedding_type = embedding_type
 
-        self.word2idx = arguments['word2idx']
-        self.idx2word = arguments['idx2word']
-        self.lengths = arguments['lengths']
-        self.word_number = arguments['word_number']
-        self.sentence_max_length = arguments['sentence_max_length']
+        self.filenames = load_filenames(self.train_path)
+        self.embeddings = load_embedding(self.train_path, embedding_type)
+        self.class_id = load_class_id(self.train_path, len(self.filenames))
+
+        self.transform = transform
 
     def __len__(self):
-        with open(self.sentence_path, 'rb') as f:
-            length = len(f.readlines())
-        return length
+        return len(self.filenames)
 
     def __getitem__(self, index):
-        with open(self.sentence_path, 'rb') as f:
-            lines = f.readlines()
-            line = lines[index]
-            sentence = line.split("\t")[1]
-            matched_image_id = line.split("#")[0]
+        key = self.filenames[index]
+        embeddings = self.embeddings[index, :, :]
+        embedding_ix = random.randint(0, embeddings.shape[0] - 1)
+        embeddings = embeddings[embedding_ix, :]
 
-            unmatched_index = random.randint(0, len(lines)-1)
-            while abs(unmatched_index - index) < 10:
-                unmatched_index = random.randint(0, len(lines)-1)
+        image_name = '%s/%s.jpg' % (self.image_path, key)
+        images = get_image(image_name, self.transform)
 
-            # print "unmatched_index: ",unmatched_index
-            unmatched_image_id = lines[unmatched_index].split("#")[0]
+        unmatched_index = random.randint(0, len(self.filenames) - 1)
+        while abs(unmatched_index - index) < 10:
+            unmatched_index = random.randint(0, len(self.filenames) - 1)
 
-        matched_image = read_image(self.image_path, matched_image_id)
-        unmatched_image = read_image(self.image_path, unmatched_image_id)
-
-        sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
-                    sentence.split()]
-        x = np.zeros(self.sentence_max_length).astype('int64')
-        x[:len(sentence)] = sentence
+        unmatched_image_name = '%s/%s.jpg' % (self.image_path, self.filenames[unmatched_index])
+        unmatched_images = get_image(unmatched_image_name, self.transform)
 
         sample = {
-            'sentences': torch.LongTensor(x),
-            'matched_images': torch.FloatTensor(matched_image),
-            'unmatched_images': torch.FloatTensor(unmatched_image)
+            'embeddings': embeddings,
+            'images': images,
+            'unmatched_images': unmatched_images
         }
-        sample['matched_images'] = sample['matched_images'].sub_(127.5).div_(127.5)
-        sample['unmatched_images'] = sample['unmatched_images'].sub_(127.5).div_(127.5)
         return sample
 
 
-class FakeSentenceDataLoader(Dataset):
-    def __init__(self, arguments):
-        self.image_path = arguments['image_path']
-        self.sentence_path = arguments['train_sentence_path']
-
-        self.word2idx = arguments['word2idx']
-        self.idx2word = arguments['idx2word']
-        self.lengths = arguments['lengths']
-        self.word_number = arguments['word_number']
-        self.sentence_max_length = arguments['sentence_max_length']
-
-    def __len__(self):
-        with open(self.sentence_path, 'rb') as f:
-            length = len(f.readlines())
-        return length
-
-    def __getitem__(self, index):
-        with open(self.sentence_path, 'rb') as f:
-            lines = f.readlines()
-            line = lines[index]
-
-            image_id = line.split("#")[0]
-            matched_sentence = line.split("\t")[1]
-
-            unmatched_index = random.randint(0, len(lines)-1)
-            while abs(unmatched_index - index) < 10:
-                unmatched_index = random.randint(0, len(lines)-1)
-
-            unmatched_sentence = lines[unmatched_index].split("\t")[1]
-
-        image = read_image(self.image_path, image_id)
-
-        matched_sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
-                            matched_sentence.split()]
-
-
-        unmatched_sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
-                              unmatched_sentence.split()]
-
-        # sample = {
-        #     'images': torch.FloatTensor(image),
-        #     'matched_sentences': torch.LongTensor(matched_sentence),
-        #     'unmatched_sentences': torch.LongTensor(unmatched_sentence)
-        # }
-        # sample['images'] = sample['images'].sub_(127.5).div_(127.5)
-        # return sample
-        image = torch.FloatTensor(image)
-        image = image.sub_(127.5).div_(127.5)
-        matched_sentence = torch.LongTensor(matched_sentence)
-        return image,matched_sentence
-
-
-
 class MatchDataLoader(Dataset):
-    def __init__(self, arguments):
-        self.image_path = arguments['image_path']
-        self.sentence_path = arguments['train_sentence_path']
+    def __init__(self, arguments, transform=None, embedding_type='cnn-rnn'):
+        self.data_dir = arguments['data_dir']
+        self.image_path = os.path.join(self.data_dir, "images")
+        self.train_path = os.path.join(self.data_dir, "train")
+        self.embedding_type = embedding_type
 
-        self.word2idx = arguments['word2idx']
-        self.idx2word = arguments['idx2word']
-        self.lengths = arguments['lengths']
-        self.word_number = arguments['word_number']
-        self.sentence_max_length = arguments['sentence_max_length']
+        self.filenames = load_filenames(self.train_path)
+        self.embeddings = load_embedding(self.train_path, embedding_type)
+        self.class_id = load_class_id(self.train_path, len(self.filenames))
+
+        self.transform = transform
 
     def __len__(self):
-        with open(self.sentence_path, 'rb') as f:
-            length = len(f.readlines())
-        return length
+        return len(self.filenames)
 
     def __getitem__(self, index):
-        with open(self.sentence_path, 'rb') as f:
-            lines = f.readlines()
-            line = lines[index]
+        key = self.filenames[index]
+        embeddings = self.embeddings[index, :, :]
+        embedding_ix = random.randint(0, embeddings.shape[0] - 1)
+        embeddings = embeddings[embedding_ix, :]
 
-            image_id = line.split("#")[0]
-            sentence = line.split("\t")[1]
+        image_name = '%s/%s.jpg' % (self.image_path, key)
+        images = get_image(image_name, self.transform)
 
-            unmatched_index = random.randint(0, len(lines)-1)
-            while abs(unmatched_index - index) < 10:
-                unmatched_index = random.randint(0, len(lines)-1)
+        unmatched_index = random.randint(0, len(self.filenames) - 1)
+        while abs(unmatched_index - index) < 10:
+            unmatched_index = random.randint(0, len(self.filenames) - 1)
 
-            unmatched_image_id = lines[unmatched_index].split("#")[0]
-            unmatched_sentence = lines[unmatched_index].split("\t")[1]
-
-        image = read_image(self.image_path, image_id)
-        unmatched_image = read_image(self.image_path, unmatched_image_id)
-
-        sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
-                    sentence.split()]
-
-        x = np.zeros(self.sentence_max_length).astype('int64')
-        x[:len(sentence)] = sentence
-
-        unmatched_sentence = [self.word2idx[w] if self.word2idx[w] < self.word_number else 1 for w in
-                              unmatched_sentence.split()]
-        unmatched_x = np.zeros(self.sentence_max_length).astype('int64')
-        unmatched_x[:len(unmatched_sentence)] = unmatched_sentence
+        unmatched_image_name = '%s/%s.jpg' % (self.image_path, self.filenames[unmatched_index])
+        unmatched_images = get_image(unmatched_image_name, self.transform)
 
         sample = {
-            'images': torch.FloatTensor(image),
-            'sentences': torch.LongTensor(x),
-            'unmatched_images': torch.FloatTensor(unmatched_image),
-            'unmatched_sentences': torch.LongTensor(unmatched_x)
+            'embeddings': embeddings,
+            'images': images,
+            'unmatched_images': unmatched_images
         }
-        sample['images'] = sample['images'].sub_(127.5).div_(127.5)
-        sample['unmatched_images'] = sample['unmatched_images'].sub_(127.5).div_(127.5)
         return sample
