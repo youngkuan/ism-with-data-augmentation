@@ -73,7 +73,6 @@ class Trainer(object):
 
     def train_fake_image_gan(self):
         bce_loss = nn.BCELoss()
-        l1_loss = nn.L1Loss()
         losses = []
         for epoch in range(self.epochs):
             if epoch % self.lr_decay_step == 0 and epoch > 0:
