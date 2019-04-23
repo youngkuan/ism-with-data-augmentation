@@ -2,10 +2,8 @@
 
 ####################### 主函数 ############################
 
-from train import Trainer
 from evaluation import evaluate
-from PIL import Image
-
+from train import Trainer
 
 if __name__ == '__main__':
     arguments = {}
@@ -27,7 +25,6 @@ if __name__ == '__main__':
     arguments['synthetic_image_path'] = "../data/mscoco2014/synthetic_images"
     arguments['model_save_path'] = "./models"
     arguments['loss_save_path'] = "./loss"
-
 
     # 上采样参数（upsample）
     arguments['ngf'] = 192 * 8

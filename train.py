@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 from datasets import get_loaders
-from modules.discrminator import FakeImageDiscriminator, StackFakeImageDiscriminator, MatchDiscriminator
+from modules.discrminator import ImageDiscriminator, MatchDiscriminator
 from modules.generator import ImageGenerator
 from modules.utils import deserialize_vocab
 from modules.utils import save_discriminator_checkpoint, weights_init
@@ -29,7 +29,7 @@ class Trainer(object):
         self.kl_coef = arguments['kl_coef']
         self.margin = arguments['margin']
         self.lr_decay_step = arguments['lr_decay_step']
-
+        self.nz = arguments['noise_dim']
         self.image_size = arguments["image_size"]
 
         self.model_save_path = arguments['model_save_path']
@@ -50,10 +50,7 @@ class Trainer(object):
         self.image_generator.apply(weights_init)
 
         # 合成图像判别器
-        self.fake_image_discriminator = FakeImageDiscriminator(arguments).cuda()
-
-        self.stack_fake_image_discriminator = StackFakeImageDiscriminator(arguments).cuda()
-        self.stack_fake_image_discriminator.apply(weights_init)
+        self.image_discriminator = ImageDiscriminator(arguments).cuda()
 
         # 图像文本匹配判别器
         self.match_discriminator = MatchDiscriminator(arguments).cuda()
@@ -63,11 +60,8 @@ class Trainer(object):
             torch.optim.Adam(self.image_generator.parameters(),
                              self.learning_rate, (self.beta1, 0.999))
 
-        self.fake_image_discriminator_optimizer = \
-            torch.optim.Adam(self.fake_image_discriminator.parameters(),
-                             self.learning_rate, (self.beta1, 0.999))
-        self.stack_fake_image_discriminator_optimizer = \
-            torch.optim.Adam(self.stack_fake_image_discriminator.parameters(),
+        self.image_discriminator_optimizer = \
+            torch.optim.Adam(self.image_discriminator.parameters(),
                              self.learning_rate, (self.beta1, 0.999))
 
         self.match_discriminator_optimizer = \
@@ -76,7 +70,9 @@ class Trainer(object):
 
     def train_generator(self):
         bce_loss = nn.BCELoss()
-        losses = []
+        real_labels = torch.FloatTensor(self.batch_size).fill_(1).cuda()
+        fake_labels = torch.FloatTensor(self.batch_size).fill_(0).cuda()
+
         for epoch in range(self.epochs):
             if epoch % self.lr_decay_step == 0 and epoch > 0:
                 self.learning_rate *= 0.5
@@ -86,13 +82,57 @@ class Trainer(object):
                     param_group['lr'] = self.learning_rate
 
             for i, train_data in enumerate(self.generator_data_loader):
-                # images -> batch*36*2048
-                images, captions, lengths, ids = zip(*train_data)
+                # image_features -> batch*36*2048
+                # images -> batch*(3*64*64)
+                images, image_features, captions, lengths, indexes = zip(*train_data)
+
+                # 更新判别器
+                self.image_discriminator_optimizer.zero_grad()
 
                 # fake_images -> batch*word_count*(3*64*64)
+                # mu -> batch * condition_dimension
                 fake_images, cap_lens, mu, logvar = self.image_generator(captions, lengths)
 
+                repeated_mu = mu.view(-1, 1, mu.size()[1])
+                repeated_mu = repeated_mu.repeat(fake_images.size()[0], fake_images.size()[1], mu.size()[1])
+                # fake_image_scores -> batch * word_count
+                fake_image_scores = self.image_discriminator(fake_images, repeated_mu)
+                # get the max scores of every word count
+                fake_image_scores = torch.max(fake_image_scores, dim=1)
 
+                real_image_scores = self.image_discriminator(images, mu)
+                wrong_images = images[:(images.size()[0] - 2)]
+                wrong_image_scores = self.image_discriminator(wrong_images, mu)
+
+                errD_fake = bce_loss(fake_image_scores, fake_labels)
+                errD_wrong = bce_loss(wrong_image_scores, fake_labels)
+                errD_real = bce_loss(real_image_scores, real_labels)
+
+                errD = errD_real + (errD_fake + errD_wrong) * 0.5
+
+                errD.backward()
+                self.image_discriminator_optimizer.step()
+
+                self.image_generator_optimizer.zero_grad()
+
+                # fake_images -> batch*word_count*(3*64*64)
+                # mu -> batch * condition_dimension
+                fake_images, cap_lens, mu, logvar = self.image_generator(captions, lengths)
+
+                repeated_mu = mu.view(-1, 1, mu.size()[1])
+                repeated_mu = repeated_mu.repeat(fake_images.size()[0], fake_images.size()[1], mu.size()[1])
+                # fake_image_scores -> batch * word_count
+                fake_image_scores = self.image_discriminator(fake_images, repeated_mu)
+                # get the max scores of every word count
+                fake_image_scores = torch.max(fake_image_scores, dim=1)
+
+
+                errD_fake = bce_loss(fake_image_scores, real_labels)
+
+                errD_fake.backward()
+
+
+                self.image_generator_optimizer.step()
 
     def train_matching_gan(self):
         margin_ranking_loss = nn.MarginRankingLoss(self.margin)

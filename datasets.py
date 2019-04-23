@@ -114,11 +114,11 @@ def collate_fn(data):
         lengths: list; valid length for each padded caption.
     """
     # Sort a data list by caption length
-    data.sort(key=lambda x: len(x[1]), reverse=True)
-    images, captions, ids, img_ids = zip(*data)
+    data.sort(key=lambda x: len(x[2]), reverse=True)
+    images, image_features, captions, indexes, img_indexes = zip(*data)
 
     # Merge images (convert tuple of 3D tensor to 4D tensor)
-    images = torch.stack(images, 0)
+    image_features = torch.stack(image_features, 0)
 
     # Merget captions (convert tuple of 1D tensor to 2D tensor)
     lengths = [len(cap) for cap in captions]
@@ -127,7 +127,7 @@ def collate_fn(data):
         end = lengths[i]
         targets[i, :end] = cap[:end]
 
-    return images, targets, lengths, ids
+    return images, image_features, targets, lengths, indexes
 
 
 def get_loaders(arguments, vocab, batch_size, num_workers):

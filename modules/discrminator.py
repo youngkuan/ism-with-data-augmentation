@@ -20,54 +20,6 @@ def conv3x3(in_planes, out_planes, stride=1):
                      padding=1, bias=False)
 
 
-class FakeImageDiscriminator(nn.Module):
-    def __init__(self, arguments):
-        super(FakeImageDiscriminator, self).__init__()
-        self.image_feature_size = arguments["image_feature_size"]
-        self.sentence_embedding_size = arguments["sentence_embedding_size"]
-        self.project_size = arguments["project_size"]
-
-        self.downsample_block = DownsampleNetwork(arguments)
-
-        self.sentence_projector = nn.Sequential(
-            nn.Linear(in_features=self.sentence_embedding_size, out_features=self.project_size),
-            nn.BatchNorm1d(num_features=self.project_size),
-            nn.LeakyReLU(negative_slope=0.2, inplace=True)
-        )
-
-        self.net = nn.Sequential(
-            nn.Conv2d(self.image_feature_size + self.project_size, 1, 1, 1, 0, bias=False),
-            nn.Sigmoid()
-        )
-        self.init_weights()
-
-    def init_weights(self):
-        # weight init, inspired by tutorial
-        self.sentence_projector.apply(self.weights_init)
-        self.net.apply(self.weights_init)
-
-    def weights_init(self, m):
-        classname = m.__class__.__name__
-        if classname.find('Conv') != -1:
-            m.weight.data.normal_(0.0, 0.02)
-        elif classname.find('BatchNorm') != -1:
-            m.weight.data.normal_(1.0, 0.02)
-            m.bias.data.fill_(0)
-        elif classname.find('Linear') != -1:
-            m.weight.data.normal_(0.0, 0.02)
-            if m.bias is not None:
-                m.bias.data.fill_(0.0)
-
-    def forward(self, images, embeddings):
-        image_features = self.downsample_block(images)
-        project_embedding = self.sentence_projector(embeddings)
-
-        concat_feature = torch.cat([image_features, project_embedding], 1)
-        concat_feature = concat_feature.view(concat_feature.size()[0], concat_feature.size()[1], 1, 1)
-        output = self.net(concat_feature)
-        return output.view(-1, 1).squeeze(1)
-
-
 class MatchDiscriminator(nn.Module):
     def __init__(self, arguments):
         super(MatchDiscriminator, self).__init__()
@@ -117,9 +69,9 @@ class MatchDiscriminator(nn.Module):
         return output.view(-1, 1).squeeze(1)
 
 
-class StackFakeImageDiscriminator(nn.Module):
+class ImageDiscriminator(nn.Module):
     def __init__(self, arguments):
-        super(StackFakeImageDiscriminator, self).__init__()
+        super(ImageDiscriminator, self).__init__()
         self.image_feature_size = arguments["image_feature_size"]
         self.ndf = arguments['ndf']
         self.nef = arguments["condition_dimension"]
