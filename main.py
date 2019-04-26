@@ -8,9 +8,11 @@ from train import Trainer
 if __name__ == '__main__':
     arguments = {}
 
+    arguments['gpus'] = [0, 1]
+
     arguments['epochs'] = 120
-    arguments['batch_size'] = 128
-    arguments['num_workers'] = 0
+    arguments['batch_size'] = 16
+    arguments['num_workers'] = 2
     arguments['learning_rate'] = 0.0002
     arguments['beta1'] = 0.5
     arguments['kl_coef'] = 2
@@ -26,12 +28,25 @@ if __name__ == '__main__':
     arguments['model_save_path'] = "./models"
     arguments['loss_save_path'] = "./loss"
 
+    # file
+    arguments['voc_file'] = "coco_precomp_vocab.json"
+    arguments['caption_file'] = "train_caps.txt"
+    arguments['train_caption_file'] = "captions_train2014.json"
+    arguments['val_caption_file'] = "captions_val2014.json"
+    arguments['image_feature_file'] = "train_ims.npy"
+    arguments['train_id_file'] = "train_ids.txt"
+
+
     # 上采样参数（upsample）
     arguments['ngf'] = 192 * 8
     arguments['ndf'] = 96
     arguments['num_channels'] = 3
     arguments['image_feature_size'] = 512
-    arguments["sentence_embedding_size"] = 1024
+    arguments["embed_size"] = 1024
+    arguments["word_dim"] = 300
+    arguments['num_layers'] = 1
+    arguments['bi_gru'] = True
+    arguments['no_txtnorm'] = True
     arguments["project_size"] = 512
     arguments["condition_dimension"] = 128
     # 噪声维度

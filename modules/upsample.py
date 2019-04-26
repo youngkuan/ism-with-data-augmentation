@@ -14,7 +14,7 @@ class CA_NET(nn.Module):
     # (https://github.com/pytorch/examples/blob/master/vae/main.py)
     def __init__(self, arguments):
         super(CA_NET, self).__init__()
-        self.t_dim = arguments["sentence_embedding_size"]
+        self.t_dim = arguments["embed_size"]
         self.c_dim = arguments["condition_dimension"]
         self.fc = nn.Linear(self.t_dim, self.c_dim * 2, bias=True)
         self.relu = nn.ReLU()

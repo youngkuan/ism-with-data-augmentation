@@ -9,17 +9,10 @@
           </mappings>
         </serverdata>
       </paths>
-      <paths name="xjtuzll">
-        <serverdata>
-          <mappings>
-            <mapping local="$PROJECT_DIR$" web="/" />
-          </mappings>
-        </serverdata>
-      </paths>
       <paths name="xjtuzll@202.117.54.73:42222">
         <serverdata>
           <mappings>
-            <mapping deploy="/tmp/pycharm_project_545" local="$PROJECT_DIR$" />
+            <mapping local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

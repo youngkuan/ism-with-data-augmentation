@@ -1,15 +1,42 @@
 # -*- coding: utf-8 -*-
 
 
+import json
 import os
 import pickle
 from collections import OrderedDict
+
+import nltk
 import numpy
 import numpy as np
 import torch
+import torchfile
 import torchvision.utils as vutils
 from PIL import Image
-from modules.discrminator import MatchDiscriminator
+from discrminator import MatchDiscriminator
+
+
+class Vocabulary(object):
+    """Simple vocabulary wrapper."""
+
+    def __init__(self):
+        self.word2idx = {}
+        self.idx2word = {}
+        self.idx = 0
+
+    def add_word(self, word):
+        if word not in self.word2idx:
+            self.word2idx[word] = self.idx
+            self.idx2word[self.idx] = word
+            self.idx += 1
+
+    def __call__(self, word):
+        if word not in self.word2idx:
+            return self.word2idx['<unk>']
+        return self.word2idx[word]
+
+    def __len__(self):
+        return len(self.word2idx)
 
 
 def KL_loss(mu, logvar):
@@ -27,7 +54,7 @@ def save_discriminator_checkpoint(discriminator, model_save_path, epoch):
 
 def load_discriminator(discriminator_model_path, arguments):
     # load discriminator model
-    discriminator = MatchDiscriminator(arguments).cuda()
+    discriminator = MatchDiscriminator(arguments)
     discriminator.load_state_dict(torch.load(discriminator_model_path))
     return discriminator
 
@@ -108,7 +135,6 @@ def load_embedding(data_dir, embedding_type):
         embeddings = pickle.load(f)
         embeddings = np.array(embeddings)
         # embedding_shape = [embeddings.shape[-1]]
-        print('embeddings: ', embeddings.shape)
     return embeddings
 
 
@@ -118,6 +144,24 @@ def load_filenames(data_dir):
         filenames = pickle.load(f)
     print('Load filenames from: %s (%d)' % (filepath, len(filenames)))
     return filenames
+
+
+def load_val_filenames(data_dir):
+    filepath = os.path.join(data_dir, 'val_filename.txt')
+    filenames = []
+    with open(filepath, 'rb') as f:
+        for line in f.readlines():
+            line = line.strip('\n')
+            filenames.append(line)
+    print('Load filenames from: %s (%d)' % (filepath, len(filenames)))
+    return filenames
+
+
+def load_val_embedding(data_dir):
+    embedding_path = os.path.join(data_dir, 'val_captions.t7')
+    t_file = torchfile.load(embedding_path)
+    embeddings = np.concatenate(t_file.fea_txt, axis=0)
+    return embeddings
 
 
 def load_class_id(data_dir, total_num):
@@ -298,32 +342,171 @@ def prepare_data(caps, worddict, maxlen=None, n_words=10000):
     return x, y
 
 
+def divide_category(annotation_path, instances_file, category_file=None):
+    """
+    read instances_***201*.json,and parse the category of every image,save to numpy
+    :param annotation_path:
+    :param instances_file:
+    :param category_file:
+    :return:
+    """
+    catToImgs = []
+    imgToCats = []
+    cats = []
+    with open(os.path.join(annotation_path, instances_file)) as json_file:
+        dataset = json.load(json_file)
+        for ann in dataset['annotations']:
+            catToImgs[ann['category_id']].append(ann['image_id'])
+            imgToCats[ann['image_id']] = ann['category_id']
+        for cat in dataset['categories']:
+            cats[cat['id']] = cat
+        data = {}
+        data["catToImgs"] = catToImgs
+        data["imgToCats"] = imgToCats
+        data["cats"] = cats
+    # np.save(os.path.join(annotation_path, category_file), data)
+    return catToImgs, imgToCats, cats
+
+
+def load_image_name_to_id(annotation_path, train_caption_file,val_caption_file):
+    imageNameToId = {}
+    imageIdToName = {}
+    with open(os.path.join(annotation_path, train_caption_file)) as json_file:
+        dataset = json.load(json_file)
+        for image in dataset['images']:
+            imageNameToId[image['file_name']] = image['id']
+            imageIdToName[image['id']] = image['file_name']
+
+    with open(os.path.join(annotation_path, val_caption_file)) as json_file:
+        dataset = json.load(json_file)
+        for image in dataset['images']:
+            imageNameToId[image['file_name']] = image['id']
+            imageIdToName[image['id']] = image['file_name']
+
+    return imageNameToId, imageIdToName
+
+
+def load_image_features(annotation_path, image_feature_file):
+    images = np.load(os.path.join(annotation_path, image_feature_file))
+    return images
+
+def load_captions(annotation_path, caption_file):
+    captions = []
+    with open(os.path.join(annotation_path,caption_file), 'rb') as f:
+        for line in f:
+            captions.append(line.strip())
+
+    return captions
+
+def load_train_ids(annotation_path, train_id_file):
+    ids = []
+    with open(os.path.join(annotation_path, train_id_file)) as train_ids:
+        for line in train_ids:
+            ids.append(int(line))
+
+    return ids
+
+
+def reorder_image_feature_and_embedding(annotation_path, image_feature_file, embedding_type, caption_file,
+                                        train_id_file):
+    """
+    将图像特征与文本嵌入调整为一一对应
+    :param annotation_path:
+    :param image_feature_file:
+    :param embedding_type:
+    :param caption_file:
+    :param train_id_file:
+    :return:
+    """
+    filenames = load_filenames(annotation_path)
+    embeddings = load_embedding(annotation_path, embedding_type)
+    print "embeddings: ", embeddings.shape
+
+    imageNameToId, imageIdToName = load_image_name_to_id(annotation_path, caption_file)
+
+    image_features = load_image_features(annotation_path, image_feature_file)
+    print "image_features: ", image_features.shape
+    train_ids = load_train_ids(annotation_path, train_id_file)
+
+    reorder_image_features = []
+    for filename in filenames:
+        image_name = '%s.jpg' % filename
+        image_id = imageNameToId[image_name]
+        index = train_ids.index(image_id)
+        reorder_image_features.append(image_features[index])
+
+    np.save(os.path.join(annotation_path, "reorder_%s"%image_feature_file),reorder_image_features)
+
+
+
+
+
+def load_category(annotation_path, category_file):
+    """
+    load numpy file
+    :param annotation_path:
+    :param category_file:
+    :return:
+    """
+    data = np.load(os.path.join(annotation_path, category_file))
+    catToImgs = data["catToImgs"]
+    imgToCats = data["imgToCats"]
+    cats = data["cats"]
+    return catToImgs, imgToCats, cats
+
+
+def segment_sentence_to_chunk(annotation_path, caption_file):
+    captions = []
+    segments = []
+    with open(os.path.join(annotation_path, caption_file), 'rb') as f:
+        for line in f:
+            caption = line.strip()
+            caption = str(caption).lower().decode('utf-8')
+            captions.append(caption)
+            segments.append(chunk(caption))
+
+    return captions, segments
+
+
+def chunk(sentence):
+    list = nltk.word_tokenize(sentence)
+    tags = nltk.pos_tag(list)
+    grammar = r"""
+     NP: {<DT|JJ|NN.*>+}          # Chunk sequences of DT, JJ, NN
+     PP: {<IN><NP>}               # Chunk prepositions followed by NP
+     VP: {<VB.*><NP|PP|CLAUSE>+} # Chunk verbs and their arguments
+     CLAUSE: {<NP><VP>}           # Chunk NP, VP
+     }<[\.VI].*>+{       # chink any verbs, prepositions or periods
+     """
+    chunks = []
+    parser = nltk.RegexpParser(grammar)
+    result = parser.parse(tags)
+    for subtree in result.subtrees():
+        t = subtree
+        t = [word for word, pos in t.leaves()]
+        chunk = ' '.join([word for word in t])
+        print chunk
+        print sentence
+        begin_index = sentence.index(chunk)
+        end_index = begin_index + len(t)
+        chunks.append((begin_index, end_index))
+
+    return chunks
+
+def deserialize_vocab(train_path, voc_file):
+    src = os.path.join(train_path,voc_file)
+    with open(src) as f:
+        d = json.load(f)
+    vocab = Vocabulary()
+    vocab.word2idx = d['word2idx']
+    vocab.idx2word = d['idx2word']
+    vocab.idx = d['idx']
+    return vocab
+
+
 if __name__ == '__main__':
-    # sentences = ["Girl jumping rope in parking lot", "Girl jumping rope in parking lot"
-    #     , "Girl jumping rope parking", "A child going down an inflatable slide"]
-    # word2idx, idx2word = build_dictionary(sentences)
-    n_words = 10000
-    # print word2idx
-    # print idx2word
-    # x,y = prepare_data(sentences,word2idx)
-    # print x
+    # train_image = Image.open("../data/mscoco2014/images/COCO_train2014_000000270070.jpg").convert('RGB')
+    s = "a people is running"
 
-    # seqs = []
-    # for i, cc in enumerate(sentences):
-    #     seq = torch.Tensor([word_dictionary[w] if word_dictionary[w] < n_words else 1 for w in cc.split()])
-    #     seqs.append(seq)
-    #
-    # print seqs
-    # lengths = [len(s) for s in seqs]
-    # print "lengths: ",lengths
-    # n_samples = len(seqs)
-    # maxlen = numpy.max(lengths) + 1
-
-    # x = numpy.zeros((maxlen, n_samples)).astype('int64')
-    # for idx, s in enumerate(seqs):
-    #     print "s: ",s
-    #     x[:lengths[idx], idx] = s
-    # seqs = torch.stack(seqs)
-    # targets = pack_padded_sequence(seqs, lengths, batch_first=True)
-    #
-    # print targets
+    segments = chunk(s)
+    print segments

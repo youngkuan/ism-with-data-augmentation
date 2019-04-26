@@ -7,12 +7,13 @@ import os
 
 import torch
 import torch.nn as nn
+import torchvision.transforms as transforms
 
 from datasets import get_loaders
 from modules.discrminator import ImageDiscriminator, MatchDiscriminator
 from modules.generator import ImageGenerator
 from modules.utils import deserialize_vocab
-from modules.utils import save_discriminator_checkpoint, weights_init
+from modules.utils import save_discriminator_checkpoint, weights_init,save_img_results
 
 cuda0 = torch.device('cuda:0')
 cuda1 = torch.device('cuda:1')
@@ -31,19 +32,29 @@ class Trainer(object):
         self.lr_decay_step = arguments['lr_decay_step']
         self.nz = arguments['noise_dim']
         self.image_size = arguments["image_size"]
+        self.gpus = arguments["gpus"]
 
         self.model_save_path = arguments['model_save_path']
         self.loss_save_path = arguments['loss_save_path']
         self.synthetic_image_path = arguments['synthetic_image_path']
         self.arguments = arguments
 
-        self.data_dir = arguments.data_dir
-        self.voc_file = arguments.voc_file
+        self.data_dir = arguments['data_dir']
+        self.voc_file = arguments['voc_file']
         self.train_path = os.path.join(self.data_dir, "train")
         # Load Vocabulary Wrapper
+        print "----------------load vocabulary--------------"
         vocab = deserialize_vocab(self.train_path, self.voc_file)
+        arguments['vocab_size'] = len(vocab)
 
-        self.generator_data_loader, self.match_data_loader = get_loaders(arguments, vocab)
+        image_transform = transforms.Compose([
+            transforms.Resize((self.image_size, self.image_size), interpolation=3),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+        self.generator_data_loader, self.match_data_loader = get_loaders(arguments, vocab, self.batch_size,
+                                                                         self.num_workers, image_transform)
 
         # 图像生成器
         self.image_generator = ImageGenerator(arguments).cuda()
@@ -84,28 +95,46 @@ class Trainer(object):
             for i, train_data in enumerate(self.generator_data_loader):
                 # image_features -> batch*36*2048
                 # images -> batch*(3*64*64)
-                images, image_features, captions, lengths, indexes = zip(*train_data)
+                images, image_features, captions, segments, lengths, indexes = train_data
+
+                if torch.cuda.is_available():
+                    images = images.cuda()
+                    # image_features = image_features.cuda()
+                    captions = captions.cuda()
 
                 # 更新判别器
                 self.image_discriminator_optimizer.zero_grad()
 
                 # fake_images -> batch*word_count*(3*64*64)
                 # mu -> batch * condition_dimension
-                fake_images, cap_lens, mu, logvar = self.image_generator(captions, lengths)
+                fake_images, cap_lens, mu, logvar = self.image_generator(captions, segments, lengths)
 
-                repeated_mu = mu.view(-1, 1, mu.size()[1])
-                repeated_mu = repeated_mu.repeat(fake_images.size()[0], fake_images.size()[1], mu.size()[1])
                 # fake_image_scores -> batch * word_count
-                fake_image_scores = self.image_discriminator(fake_images, repeated_mu)
-                # get the max scores of every word count
-                fake_image_scores = torch.max(fake_image_scores, dim=1)
+                # pack
+                fake_images = fake_images.view(fake_images.size()[0] * fake_images.size()[1], fake_images.size()[2],
+                                               fake_images.size()[3], fake_images.size()[4])
+                reshape_mu = mu.view(mu.size()[0] * mu.size()[1], -1)
 
-                real_image_scores = self.image_discriminator(images, mu)
-                wrong_images = images[:(images.size()[0] - 2)]
-                wrong_image_scores = self.image_discriminator(wrong_images, mu)
+                inputs = (fake_images, reshape_mu)
+                # fake_image_scores = self.image_discriminator(fake_images, repeated_mu)
+                fake_image_scores = nn.parallel.data_parallel(self.image_discriminator, inputs, self.gpus)
+
+                # get the max scores of every word count
+                # unpack
+                fake_image_scores = fake_image_scores.view(self.batch_size,-1)
+                fake_image_scores = torch.max(fake_image_scores, dim=1)[0]
+
+                inputs = (images, mu[:,-1,:])
+                # real_image_scores = self.image_discriminator(images, mu)
+                real_image_scores = nn.parallel.data_parallel(self.image_discriminator, inputs, self.gpus)
+
+                wrong_images = images[:(images.size()[0] - 1)]
+                inputs = (wrong_images, mu[1:,-1,:])
+                # wrong_image_scores = self.image_discriminator(wrong_images, mu)
+                wrong_image_scores = nn.parallel.data_parallel(self.image_discriminator, inputs, self.gpus)
 
                 errD_fake = bce_loss(fake_image_scores, fake_labels)
-                errD_wrong = bce_loss(wrong_image_scores, fake_labels)
+                errD_wrong = bce_loss(wrong_image_scores, fake_labels[1:])
                 errD_real = bce_loss(real_image_scores, real_labels)
 
                 errD = errD_real + (errD_fake + errD_wrong) * 0.5
@@ -117,22 +146,31 @@ class Trainer(object):
 
                 # fake_images -> batch*word_count*(3*64*64)
                 # mu -> batch * condition_dimension
-                fake_images, cap_lens, mu, logvar = self.image_generator(captions, lengths)
+                fake_images, cap_lens, mu, logvar = self.image_generator(captions, segments, lengths)
 
-                repeated_mu = mu.view(-1, 1, mu.size()[1])
-                repeated_mu = repeated_mu.repeat(fake_images.size()[0], fake_images.size()[1], mu.size()[1])
                 # fake_image_scores -> batch * word_count
-                fake_image_scores = self.image_discriminator(fake_images, repeated_mu)
+                # fake_image_scores = self.image_discriminator(fake_images, repeated_mu)
+                # pack
+                fake_images = fake_images.view(fake_images.size()[0] * fake_images.size()[1], fake_images.size()[2],
+                                               fake_images.size()[3], fake_images.size()[4])
+                reshape_mu = mu.view(mu.size()[0] * mu.size()[1], -1)
+
+                inputs = (fake_images, reshape_mu)
+                # fake_image_scores = self.image_discriminator(fake_images, repeated_mu)
+                fake_image_scores = nn.parallel.data_parallel(self.image_discriminator, inputs, self.gpus)
+
                 # get the max scores of every word count
-                fake_image_scores = torch.max(fake_image_scores, dim=1)
+                # unpack
+                fake_image_scores = fake_image_scores.view(self.batch_size, -1)
+                fake_image_scores = torch.max(fake_image_scores, dim=1)[0]
 
-
-                errD_fake = bce_loss(fake_image_scores, real_labels)
-
-                errD_fake.backward()
-
-
+                errG_fake = bce_loss(fake_image_scores, real_labels)
+                errG = errG_fake
+                errG.backward()
                 self.image_generator_optimizer.step()
+
+                save_img_results(images, fake_images, epoch, self.synthetic_image_path, self.batch_size)
+                print("Epoch: %d, iteration: %d, errD: %f, errG: %f" % (epoch, i, errD.data, errG.data))
 
     def train_matching_gan(self):
         margin_ranking_loss = nn.MarginRankingLoss(self.margin)

@@ -11,28 +11,38 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 from modules.utils import get_image, load_filenames, load_embedding, load_class_id
-from modules.utils import load_image_features, load_captions, load_image_name_to_id, load_train_ids
+from modules.utils import load_image_name_to_id, load_train_ids, \
+    segment_sentence_to_chunk
 
 
 class GeneratorDataset(Dataset):
-    def __init__(self, arguments, vocab):
-        self.data_dir = arguments.data_dir
-        self.caption_file = arguments.caption_file
-        self.train_caption_file = arguments.train_caption_file
-        self.val_caption_file = arguments.val_caption_file
-        self.image_feature_file = arguments.image_feature_file
+    def __init__(self, arguments, vocab, image_transform):
+        self.data_dir = arguments['data_dir']
+        self.caption_file = arguments['caption_file']
+        self.train_caption_file = arguments['train_caption_file']
+        self.val_caption_file = arguments['val_caption_file']
+        self.train_id_file = arguments['train_id_file']
+        self.image_feature_file = arguments['image_feature_file']
         self.image_path = os.path.join(self.data_dir, "images")
         self.train_path = os.path.join(self.data_dir, "train")
         self.im_div = 5
         self.vocab = vocab
+        self.transform = image_transform
 
         # load data
-        self.image_features = load_image_features(self.train_path, self.image_feature_file)
-        self.captions = load_captions(self.train_path, self.caption_file)
+        print "----------------load image features--------------"
+        # self.image_features = load_image_features(self.train_path, self.image_feature_file)
+        self.image_features = None
+        print "----------------load image captions and segments--------------"
+        self.segments,self.captions = segment_sentence_to_chunk(self.train_path, self.caption_file)
+        print "----------------load image ids--------------"
         self.image_ids = load_train_ids(self.train_path, self.train_id_file)
+        print "----------------load image ids 2 image names--------------"
         self.imageNameToId, self.imageIdToName = load_image_name_to_id(self.train_path, self.train_caption_file,
                                                                        self.val_caption_file)
+
         self.length = len(self.captions)
+        print "dataset size: ", self.length
 
     def __len__(self):
         return self.length
@@ -40,8 +50,10 @@ class GeneratorDataset(Dataset):
     def __getitem__(self, index):
         # handle the image redundancy
         img_index = index / self.im_div
-        image_feature = torch.Tensor(self.images[img_index])
+        # image_feature = torch.Tensor(self.images[img_index])
+        image_feature = None
         caption = self.captions[index]
+        segment = self.segments[index]
         vocab = self.vocab
 
         image_id = self.image_ids[img_index]
@@ -58,7 +70,7 @@ class GeneratorDataset(Dataset):
         caption.extend([vocab(token) for token in tokens])
         caption.append(vocab('<end>'))
         caption = torch.Tensor(caption)
-        return image, image_feature, caption, index, img_index
+        return image, image_feature, caption, segment, index, img_index
 
 
 class DiscriminatorDataset(Dataset):
@@ -115,10 +127,11 @@ def collate_fn(data):
     """
     # Sort a data list by caption length
     data.sort(key=lambda x: len(x[2]), reverse=True)
-    images, image_features, captions, indexes, img_indexes = zip(*data)
+    images, image_features, captions, segments, indexes, img_indexes = zip(*data)
 
     # Merge images (convert tuple of 3D tensor to 4D tensor)
-    image_features = torch.stack(image_features, 0)
+    # image_features = torch.stack(image_features, 0)
+    images = torch.stack(images, 0)
 
     # Merget captions (convert tuple of 1D tensor to 2D tensor)
     lengths = [len(cap) for cap in captions]
@@ -127,11 +140,11 @@ def collate_fn(data):
         end = lengths[i]
         targets[i, :end] = cap[:end]
 
-    return images, image_features, targets, lengths, indexes
+    return images, image_features, targets, segments, lengths, indexes
 
 
-def get_loaders(arguments, vocab, batch_size, num_workers):
-    generator_dataset = GeneratorDataset(arguments, vocab)
+def get_loaders(arguments, vocab, batch_size, num_workers, image_transform=None):
+    generator_dataset = GeneratorDataset(arguments, vocab, image_transform)
     generator_data_loader = DataLoader(generator_dataset, batch_size=batch_size, shuffle=True,
                                        num_workers=num_workers, collate_fn=collate_fn)
 

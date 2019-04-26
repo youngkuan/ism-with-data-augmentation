@@ -42,9 +42,10 @@ class EncoderText(nn.Module):
     def init_weights(self):
         self.embed.weight.data.uniform_(-0.1, 0.1)
 
-    def forward(self, x, lengths, stop_indexes):
+    def forward(self, x, lengths):
         """Handles variable size captions
         """
+        total_length = x.size(1)
         # Embed word ids to vectors
         x = self.embed(x)
         packed = pack_padded_sequence(x, lengths, batch_first=True)
@@ -53,7 +54,7 @@ class EncoderText(nn.Module):
         out, _ = self.rnn(packed)
 
         # Reshape *final* output to (batch_size, hidden_size)
-        padded = pad_packed_sequence(out, batch_first=True)
+        padded = pad_packed_sequence(out, batch_first=True, total_length=total_length)
         cap_emb, cap_len = padded
 
         if self.use_bi_gru:

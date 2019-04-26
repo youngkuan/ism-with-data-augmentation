@@ -24,7 +24,7 @@ class MatchDiscriminator(nn.Module):
     def __init__(self, arguments):
         super(MatchDiscriminator, self).__init__()
         self.image_feature_size = arguments["image_feature_size"]
-        self.sentence_embedding_size = arguments["sentence_embedding_size"]
+        self.sentence_embedding_size = arguments["embed_size"]
         self.project_size = arguments["project_size"]
 
         self.downsample_block = DownsampleNetwork(arguments)
@@ -75,7 +75,7 @@ class ImageDiscriminator(nn.Module):
         self.image_feature_size = arguments["image_feature_size"]
         self.ndf = arguments['ndf']
         self.nef = arguments["condition_dimension"]
-        self.sentence_embedding_size = arguments["sentence_embedding_size"]
+        self.sentence_embedding_size = arguments["embed_size"]
         self.project_size = arguments["project_size"]
         ndf, nef = self.ndf, self.nef
 
