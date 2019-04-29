@@ -485,8 +485,6 @@ def chunk(sentence):
         t = subtree
         t = [word for word, pos in t.leaves()]
         chunk = ' '.join([word for word in t])
-        print chunk
-        print sentence
         begin_index = sentence.index(chunk)
         end_index = begin_index + len(t)
         chunks.append((begin_index, end_index))

@@ -25,7 +25,7 @@ class ImageGenerator(nn.Module):
         chunks = []
         for i, segment in enumerate(segments):
             segment_embs = []
-            for j, s in segment:
+            for j, s in enumerate(segment):
                 begin = s[0] + 1
                 end = s[1] + 1
                 segment_embs.append(torch.mean(captions[i, begin:end, :], 1))
