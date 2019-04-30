@@ -13,6 +13,7 @@ import torch
 import torchfile
 import torchvision.utils as vutils
 from PIL import Image
+
 from discrminator import MatchDiscriminator
 
 
@@ -368,7 +369,7 @@ def divide_category(annotation_path, instances_file, category_file=None):
     return catToImgs, imgToCats, cats
 
 
-def load_image_name_to_id(annotation_path, train_caption_file,val_caption_file):
+def load_image_name_to_id(annotation_path, train_caption_file, val_caption_file):
     imageNameToId = {}
     imageIdToName = {}
     with open(os.path.join(annotation_path, train_caption_file)) as json_file:
@@ -390,13 +391,15 @@ def load_image_features(annotation_path, image_feature_file):
     images = np.load(os.path.join(annotation_path, image_feature_file))
     return images
 
+
 def load_captions(annotation_path, caption_file):
     captions = []
-    with open(os.path.join(annotation_path,caption_file), 'rb') as f:
+    with open(os.path.join(annotation_path, caption_file), 'rb') as f:
         for line in f:
             captions.append(line.strip())
 
     return captions
+
 
 def load_train_ids(annotation_path, train_id_file):
     ids = []
@@ -435,10 +438,7 @@ def reorder_image_feature_and_embedding(annotation_path, image_feature_file, emb
         index = train_ids.index(image_id)
         reorder_image_features.append(image_features[index])
 
-    np.save(os.path.join(annotation_path, "reorder_%s"%image_feature_file),reorder_image_features)
-
-
-
+    np.save(os.path.join(annotation_path, "reorder_%s" % image_feature_file), reorder_image_features)
 
 
 def load_category(annotation_path, category_file):
@@ -456,14 +456,20 @@ def load_category(annotation_path, category_file):
 
 
 def segment_sentence_to_chunk(annotation_path, caption_file):
-    captions = []
-    segments = []
-    with open(os.path.join(annotation_path, caption_file), 'rb') as f:
-        for line in f:
-            caption = line.strip()
-            caption = str(caption).lower().decode('utf-8')
-            captions.append(caption)
-            segments.append(chunk(caption))
+    segments_file = os.path.join(annotation_path, "segments.npy")
+
+    if os.path.exists(segments_file):
+        [captions, segments] = np.load(segments_file)
+    else:
+        captions = []
+        segments = []
+        with open(os.path.join(annotation_path, caption_file), 'rb') as f:
+            for line in f:
+                caption = line.strip()
+                caption = str(caption).lower().decode('utf-8')
+                captions.append(caption)
+                segments.append(chunk(caption))
+        np.save(segments_file, [captions, segments])
 
     return captions, segments
 
@@ -484,15 +490,24 @@ def chunk(sentence):
     for subtree in result.subtrees():
         t = subtree
         t = [word for word, pos in t.leaves()]
-        chunk = ' '.join([word for word in t])
-        begin_index = sentence.index(chunk)
+        begin_index = find(list, t)
         end_index = begin_index + len(t)
         chunks.append((begin_index, end_index))
 
     return chunks
 
+
+def find(list, sublist):
+    cut = len(sublist)
+    for i in range(0, len(list) - cut + 1, 1):
+        tmp = list[i:i + cut]
+        if cmp(tmp, sublist) == 0:
+            return i
+    return -1
+
+
 def deserialize_vocab(train_path, voc_file):
-    src = os.path.join(train_path,voc_file)
+    src = os.path.join(train_path, voc_file)
     with open(src) as f:
         d = json.load(f)
     vocab = Vocabulary()
@@ -504,7 +519,15 @@ def deserialize_vocab(train_path, voc_file):
 
 if __name__ == '__main__':
     # train_image = Image.open("../data/mscoco2014/images/COCO_train2014_000000270070.jpg").convert('RGB')
-    s = "a people is running"
+    # s = "a people is running"
+    #
+    # segments = chunk(s)
+    # np.save("test.npy", segments)
+    # print segments
 
-    segments = chunk(s)
-    print segments
+    ls1 = ['sa1', 'sa8', 'sa5']
+    ls2 = ['sa1', 'sa5', 'sa8', 'sa10']
+    print cmp(ls1, ls2)
+    print cmp(ls2, ls1)
+    ls3 = ['sa1', 'sa8', 'sa5']
+    print cmp(ls1, ls3)
