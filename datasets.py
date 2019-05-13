@@ -10,8 +10,8 @@ import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
-from modules.utils import get_image, load_filenames, load_embedding, load_class_id
-from modules.utils import load_image_name_to_id, load_train_ids, \
+from utils import get_image, load_filenames, load_embedding, load_class_id
+from utils import load_image_name_to_id, load_train_ids, \
     segment_sentence_to_chunk
 
 

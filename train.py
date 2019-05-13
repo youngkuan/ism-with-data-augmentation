@@ -12,8 +12,8 @@ import torchvision.transforms as transforms
 from datasets import get_loaders
 from modules.discrminator import ImageDiscriminator, MatchDiscriminator
 from modules.generator import ImageGenerator
-from modules.utils import deserialize_vocab
-from modules.utils import save_discriminator_checkpoint, weights_init,save_img_results
+from utils import deserialize_vocab
+from utils import save_discriminator_checkpoint, weights_init,save_img_results
 
 cuda0 = torch.device('cuda:0')
 cuda1 = torch.device('cuda:1')

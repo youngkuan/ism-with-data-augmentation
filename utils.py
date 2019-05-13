@@ -14,7 +14,7 @@ import torchfile
 import torchvision.utils as vutils
 from PIL import Image
 
-from discrminator import MatchDiscriminator
+from modules.discrminator import MatchDiscriminator
 
 
 class Vocabulary(object):

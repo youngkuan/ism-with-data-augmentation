@@ -9,7 +9,7 @@ import torch
 import torchvision.transforms as transforms
 from PIL import Image
 
-from modules.utils import load_discriminator, load_val_embedding, load_val_filenames
+from utils import load_discriminator, load_val_embedding, load_val_filenames
 
 
 def i2t(discriminator, images, sentences):

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ####################### 数据预处理 ############################
-from modules.utils import reorder_image_feature_and_embedding
+from utils import reorder_image_feature_and_embedding
 import os
 
 def main():
