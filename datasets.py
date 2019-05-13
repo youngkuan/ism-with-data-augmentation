@@ -34,7 +34,16 @@ class GeneratorDataset(Dataset):
         # self.image_features = load_image_features(self.train_path, self.image_feature_file)
         self.image_features = None
         print "----------------load image captions and segments--------------"
+        # Captions
+        self.captions1 = []
+        with open(os.path.join(self.train_path,self.caption_file), 'rb') as f:
+            for line in f:
+                self.captions1.append(line.strip())
+
         self.captions, self.segments = segment_sentence_to_chunk(self.train_path, self.caption_file)
+        for i,c in enumerate(self.captions):
+            print "caption: ", self.captions[i]
+            print "caption1: ", self.captions1[i]
         print "----------------load image ids--------------"
         self.image_ids = load_train_ids(self.train_path, self.train_id_file)
         print "----------------load image ids 2 image names--------------"

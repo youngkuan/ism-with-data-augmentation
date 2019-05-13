@@ -466,9 +466,9 @@ def segment_sentence_to_chunk(annotation_path, caption_file):
         with open(os.path.join(annotation_path, caption_file), 'rb') as f:
             for line in f:
                 caption = line.strip()
-                caption = str(caption).lower().decode('utf-8')
                 captions.append(caption)
-                segments.append(chunk(caption))
+                c = str(caption).lower().decode('utf-8')
+                segments.append(chunk(c))
         np.save(segments_file, [captions, segments])
 
     return captions, segments
@@ -494,8 +494,8 @@ def chunk(sentence):
         end_index = begin_index + len(t)
         chunks.append((begin_index, end_index))
 
+    chunks.reverse()
     return chunks
-
 
 def find(list, sublist):
     cut = len(sublist)
@@ -525,9 +525,4 @@ if __name__ == '__main__':
     # np.save("test.npy", segments)
     # print segments
 
-    ls1 = ['sa1', 'sa8', 'sa5']
-    ls2 = ['sa1', 'sa5', 'sa8', 'sa10']
-    print cmp(ls1, ls2)
-    print cmp(ls2, ls1)
-    ls3 = ['sa1', 'sa8', 'sa5']
-    print cmp(ls1, ls3)
+    print torch.ones(10)
