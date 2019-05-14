@@ -4,6 +4,8 @@
 
 from evaluation import evaluate
 from train import Trainer
+import torch
+import os
 
 if __name__ == '__main__':
     arguments = {}
@@ -36,16 +38,24 @@ if __name__ == '__main__':
     arguments['image_feature_file'] = "train_ims.npy"
     arguments['train_id_file'] = "train_ids.txt"
     arguments['box_file'] = "train_boxes.npy"
+    arguments['emb_matrix_file'] = "emb_matrix.pt"
 
+    emb_matrix = torch.load(os.path.join(arguments['train_path'],arguments['emb_matrix_file']))
+    print "emb_matrix: ",emb_matrix.size()
 
     # 上采样参数（upsample）
     arguments['ngf'] = 192 * 8
     arguments['ndf'] = 96
     arguments['num_channels'] = 3
     arguments['image_feature_size'] = 512
+
+    arguments["word_dim"] = 200
     arguments["embed_size"] = 1024
-    arguments["word_dim"] = 300
     arguments['num_layers'] = 1
+    arguments['da'] = 350
+    arguments['r'] = 36
+    arguments['emb_matrix'] = emb_matrix
+    arguments['cuda'] = True
     arguments['bi_gru'] = True
     arguments['no_txtnorm'] = True
     arguments["project_size"] = 512

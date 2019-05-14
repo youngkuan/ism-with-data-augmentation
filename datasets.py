@@ -44,7 +44,11 @@ class GeneratorDataset(Dataset):
 
         # load data
         print "----------------load image captions and segments--------------"
-        self.captions, self.segments = segment_sentence_to_chunk(self.train_path, self.caption_file)
+        # Captions
+        self.captions = []
+        with open(os.path.join(self.train_path,self.caption_file), 'rb') as f:
+            for line in f:
+                self.captions.append(line.strip())
         print "----------------load image boxes--------------"
         self.boxes = load_boxes(self.train_path, self.box_file)
         print "----------------load image ids--------------"
@@ -64,7 +68,6 @@ class GeneratorDataset(Dataset):
         img_index = index / self.im_div
 
         caption = self.captions[index]
-        segment = self.segments[index]
         vocab = self.vocab
 
         image_id = self.image_ids[img_index]
@@ -93,7 +96,7 @@ class GeneratorDataset(Dataset):
         caption.append(vocab('<end>'))
         caption = torch.Tensor(caption)
 
-        return image, regions, caption, segment, index, img_index
+        return image, regions, caption, index, img_index
 
 
 class DiscriminatorDataset(Dataset):
@@ -150,7 +153,7 @@ def collate_fn(data):
     """
     # Sort a data list by caption length
     data.sort(key=lambda x: len(x[2]), reverse=True)
-    images, regions, captions, segments, indexes, img_indexes = zip(*data)
+    images, regions, captions, indexes, img_indexes = zip(*data)
 
     # Merge images (convert tuple of 3D tensor to 4D tensor)
     images = torch.stack(images, 0)
@@ -163,7 +166,7 @@ def collate_fn(data):
         end = lengths[i]
         targets[i, :end] = cap[:end]
 
-    return images, regions, targets, segments, lengths, indexes
+    return images, regions, targets, lengths, indexes
 
 
 def get_loaders(arguments, vocab, batch_size, num_workers):

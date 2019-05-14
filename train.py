@@ -36,6 +36,7 @@ class Trainer(object):
         self.model_save_path = arguments['model_save_path']
         self.loss_save_path = arguments['loss_save_path']
         self.synthetic_image_path = arguments['synthetic_image_path']
+        self.r = arguments['r']
         self.arguments = arguments
 
         self.data_dir = arguments['data_dir']
@@ -74,8 +75,8 @@ class Trainer(object):
 
     def train_generator(self):
         bce_loss = nn.BCELoss()
-        real_labels = torch.FloatTensor(self.batch_size).fill_(1).cuda()
-        fake_labels = torch.FloatTensor(self.batch_size).fill_(0).cuda()
+        real_labels = torch.FloatTensor(self.batch_size, self.r).fill_(1).cuda()
+        fake_labels = torch.FloatTensor(self.batch_size, self.r).fill_(0).cuda()
 
         for epoch in range(self.epochs):
             if epoch % self.lr_decay_step == 0 and epoch > 0:
@@ -85,10 +86,12 @@ class Trainer(object):
                 for param_group in self.stack_fake_image_discriminator_optimizer.param_groups:
                     param_group['lr'] = self.learning_rate
 
+            hidden = self.image_generator.txt_enc.init_hidden(self.batch_size)
+
             for i, train_data in enumerate(self.generator_data_loader):
                 # images -> batch*(3*64*64)
                 # regions -> batch*36*(3*64*64)
-                images, regions, captions, segments, lengths, indexes = train_data
+                images, regions, captions, lengths, indexes = train_data
                 print "images: ", images.size()
                 print "regions: ", regions.size()
                 if torch.cuda.is_available():
@@ -101,7 +104,7 @@ class Trainer(object):
 
                 # fake_images -> batch * r * (3*64*64)
                 # mu -> batch * condition_dimension
-                fake_regions, cap_lens, mu, logvar = self.image_generator(captions, segments, lengths)
+                fake_regions, penal, hidden, mu = self.image_generator(captions, hidden, lengths)
                 print "fake_regions: ", fake_regions.size()
                 print "mu: ", mu.size()
                 # pack
@@ -110,14 +113,12 @@ class Trainer(object):
                                                  fake_regions.size()[3],
                                                  fake_regions.size()[4])
 
-
                 fake_image_scores = nn.parallel.data_parallel(self.image_discriminator, fake_regions, self.gpus)
                 # fake_image_scores -> batch * word_count
                 print "fake_image_scores: ", fake_image_scores.size()
 
-                # get the max scores of every word count
                 # unpack
-                fake_image_scores = fake_image_scores.view(self.batch_size, -1)
+                # fake_image_scores = fake_image_scores.view(self.batch_size, -1)
 
                 regions = regions.view(regions.size()[0] * regions.size()[1],
                                        regions.size()[2],
@@ -133,16 +134,17 @@ class Trainer(object):
                 errD_real = bce_loss(real_image_scores, real_labels)
 
                 # errD = errD_real + (errD_fake + errD_wrong) * 0.5
-                errD = errD_real + errD_fake
+                errD = errD_real + errD_fake + penal
 
                 errD.backward()
                 self.image_discriminator_optimizer.step()
 
+                # 更新生成器
                 self.image_generator_optimizer.zero_grad()
 
                 # fake_regions -> batch * r * (3*64*64)
                 # mu -> batch * condition_dimension
-                fake_regions, cap_lens, mu, logvar = self.image_generator(captions, segments, lengths)
+                fake_regions, penal, hidden, mu = self.image_generator(captions, hidden, lengths)
 
                 # fake_image_scores -> batch * word_count
                 # pack
@@ -152,13 +154,11 @@ class Trainer(object):
 
                 fake_image_scores = nn.parallel.data_parallel(self.image_discriminator, fake_regions, self.gpus)
 
-                # get the max scores of every word count
                 # unpack
-                fake_image_scores = fake_image_scores.view(self.batch_size, -1)
-                fake_image_scores = torch.max(fake_image_scores, dim=1)[0]
+                # fake_image_scores = fake_image_scores.view(self.batch_size, -1)
 
                 errG_fake = bce_loss(fake_image_scores, real_labels)
-                errG = errG_fake
+                errG = errG_fake + penal
                 errG.backward()
                 self.image_generator_optimizer.step()
 

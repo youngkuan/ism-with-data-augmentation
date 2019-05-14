@@ -9,61 +9,34 @@ from upsample import UpsampleNetwork
 
 class ImageGenerator(nn.Module):
 
-    def __init__(self, arguments):
+    def __init__(self, arg):
         super(ImageGenerator, self).__init__()
-        self.noise_dim = arguments['noise_dim']
-        self.embed_size = arguments['embed_size']
-        vocab_size = arguments['vocab_size']
-        word_dim = arguments['word_dim']
-        embed_size = arguments['embed_size']
-        num_layers = arguments['num_layers']
-        da = arguments['da']
-        r = arguments['r']
-        emb_matrix = arguments['emb_matrix']
-        cuda = arguments['cuda']
-        use_bi_gru = arguments['bi_gru']
+        self.noise_dim = arg['noise_dim']
+        vocab_size = arg['vocab_size']
+        word_dim = arg['word_dim']
+        embed_size = arg['embed_size']
+        num_layers = arg['num_layers']
+        da = arg['da']
+        self.r = arg['r']
+        emb_matrix = arg['emb_matrix']
+        cuda = arg['cuda']
+        use_bi_gru = arg['bi_gru']
 
-        # self.txt_enc = EncoderText(arguments['vocab_size'], arguments['word_dim'],
-        #                            arguments['embed_size'], arguments['num_layers'],
-        #                            use_bi_gru=arguments['bi_gru'],
-        #                            no_txtnorm=arguments['no_txtnorm'])
-        self.txt_enc = SelfAttentive(vocab_size, word_dim, embed_size, num_layers, da, r, emb_matrix, cuda, use_bi_gru)
 
-        self.upsample_block = UpsampleNetwork(arguments)
+        self.txt_enc = SelfAttentive(vocab_size, word_dim, embed_size, num_layers,
+                                     da, self.r, emb_matrix, cuda, use_bi_gru)
 
-    def generate_segment_emb(self, captions, segments):
-        chunks = []
-        for i, segment in enumerate(segments):
-            segment_embs = []
-            for j, s in enumerate(segment):
-                begin = s[0] + 1
-                end = s[1] + 1
-                segment_embs.append(torch.mean(captions[i, begin:end, :], 1))
+        self.upsample_block = UpsampleNetwork(arg)
 
-            segment_embs = torch.stack(segment_embs, 0)
-            segment_embs = segment_embs.view(1, -1, self.embed_size)
-            chunks.append(segment_embs)
-            chunks = torch.stack(chunks, 0)
-        return chunks
-
-    def forward(self, captions, segments, lengths):
-
+    def forward(self, captions, hidden, lengths):
+        print "hidden.size(): ",hidden.size()
         # cap_emb -> batch_size*word_count*embed_size
-        cap_emb, cap_lens = self.txt_enc(captions, lengths)
-        print "cap_emb: ", cap_emb.size()
+        BM, hidden, penal, weights = self.txt_enc(captions, hidden, lengths)
+        print "BM: ", BM.size()
 
-        # word_emb = cap_emb[:, -1, :].view(cap_emb.size()[0], 1, -1)
-        # print "word_emb: ", word_emb.size()
-        # segment_embs = self.generate_segment_emb(cap_emb, segments)
-        # print "segment_embs: ", segment_embs.size()
-        # sentence_emb = torch.mean(cap_emb, 1).view(cap_emb.size()[0], 1, -1)
-        # print "sentence_emb: ", sentence_emb.size()
-        #
-        # embed = torch.stack([word_emb, segment_embs, sentence_emb], 1)
-
-        embed = cap_emb
+        embed = BM.view(captions.size()[0], self.r, -1)
         noise = torch.FloatTensor(embed.size(0), embed.size(1), self.noise_dim).cuda()
         noise.data.normal_(0, 1)
         images, mus, logvars = self.upsample_block(embed, noise)
 
-        return images, cap_lens, mus, logvars
+        return images, penal, hidden, mus

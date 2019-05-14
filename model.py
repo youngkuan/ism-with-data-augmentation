@@ -74,6 +74,8 @@ class SelfAttentive(nn.Module):
                  use_bi_gru=True):
         super(SelfAttentive, self).__init__()
 
+        self.use_bi_gru = use_bi_gru
+
         # Embedding Layer
         self.encoder = nn.Embedding(vocab_size, word_dim)
 
@@ -104,13 +106,14 @@ class SelfAttentive(nn.Module):
         self.encoder.weight.data = embedding_matrix
 
     def forward(self, input, hidden, lengths):
+        total_length = input.size(1)
 
         emb = self.encoder(input)
 
         packed = pack_padded_sequence(emb, lengths, batch_first=True)
         output, hidden = self.rnn(packed, hidden)
 
-        depacked_output, lens = pad_packed_sequence(output, batch_first=True, total_length=input.size()[0])
+        depacked_output, lens = pad_packed_sequence(output, batch_first=True, total_length=total_length)
 
         if self.cuda:
             BM = torch.zeros(input.size(0), self.r * self.nhid * 2).cuda()
@@ -146,6 +149,8 @@ class SelfAttentive(nn.Module):
 
     def init_hidden(self, bsz):
         weight = next(self.parameters()).data
-
-        return (weight.new(self.nlayers * 2, bsz, self.nhid).zero_(),
-                weight.new(self.nlayers * 2, bsz, self.nhid).zero_())
+        if self.use_bi_gru:
+            hidden = weight.new(2, bsz, self.nhid).zero_().cuda()
+        else:
+            hidden = weight.new(1, bsz, self.nhid).zero_().cuda()
+        return hidden
