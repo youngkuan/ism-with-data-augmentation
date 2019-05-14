@@ -21,8 +21,10 @@ class CA_NET(nn.Module):
 
     def encode(self, text_embedding):
         x = self.relu(self.fc(text_embedding))
-        mu = x[:, :self.c_dim]
-        logvar = x[:, self.c_dim:]
+        # mu = x[:, :self.c_dim]
+        # logvar = x[:, self.c_dim:]
+        mu = x[:, :, :self.c_dim]
+        logvar = x[:, :, self.c_dim:]
         return mu, logvar
 
     def reparametrize(self, mu, logvar):
@@ -83,8 +85,8 @@ class UpsampleNetwork(nn.Module):
 
     def forward(self, sentence_embedding, noise):
         c_code, mu, logvar = self.ca_net(sentence_embedding)
-        z_c_code = torch.cat((noise, c_code), 1)
-
+        z_c_code = torch.cat((noise, c_code), 2)
+        z_c_code = z_c_code.view(-1, z_c_code.size()[2])
         # state size ngf x 4 x 4
         output = self.fc(z_c_code)
         output = output.view(-1, self.ngf, 4, 4)
@@ -106,4 +108,5 @@ class UpsampleNetwork(nn.Module):
 
         # state size 3 x 224 x 224
         fake_img = self.img(output)
+        fake_img = fake_img.view(mu.size()[0], mu.size()[1], fake_img.size()[1], fake_img.size()[2], fake_img.size()[3])
         return fake_img, mu, logvar

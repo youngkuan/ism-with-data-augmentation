@@ -35,6 +35,7 @@ if __name__ == '__main__':
     arguments['val_caption_file'] = "captions_val2014.json"
     arguments['image_feature_file'] = "train_ims.npy"
     arguments['train_id_file'] = "train_ids.txt"
+    arguments['box_file'] = "train_boxes.npy"
 
 
     # 上采样参数（upsample）
@@ -49,6 +50,8 @@ if __name__ == '__main__':
     arguments['no_txtnorm'] = True
     arguments["project_size"] = 512
     arguments["condition_dimension"] = 128
+    # 判别器是否加入条件信息
+    arguments["bcondition"]  = False
     # 噪声维度
     arguments['noise_dim'] = 100
 

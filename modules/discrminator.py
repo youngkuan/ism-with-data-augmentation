@@ -79,6 +79,7 @@ class ImageDiscriminator(nn.Module):
         self.project_size = arguments["project_size"]
         ndf, nef = self.ndf, self.nef
 
+        self.bcondition = arguments["bcondition"]
         # input image size 3*64*64
         self.encode_image = nn.Sequential(
             nn.Conv2d(3, ndf, 4, 2, 1, bias=False),
@@ -97,20 +98,28 @@ class ImageDiscriminator(nn.Module):
             # state size (ndf * 8) x 4 x 4)
             nn.LeakyReLU(0.2, inplace=True)
         )
-        self.outlogits = nn.Sequential(
-            conv3x3(ndf * 8 + nef, ndf * 8),
-            nn.BatchNorm2d(ndf * 8),
-            nn.LeakyReLU(0.2, inplace=True),
-            nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4),
-            nn.Sigmoid())
+        if self.bcondition:
+            self.outlogits = nn.Sequential(
+                conv3x3(ndf * 8 + nef, ndf * 8),
+                nn.BatchNorm2d(ndf * 8),
+                nn.LeakyReLU(0.2, inplace=True),
+                nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4),
+                nn.Sigmoid())
+        else:
+            self.outlogits = nn.Sequential(
+                nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4),
+                nn.Sigmoid())
 
     def forward(self, image, condition):
         image_feature = self.encode_image(image)
 
-        condition = condition.view(-1, self.nef, 1, 1)
-        condition = condition.repeat(1, 1, 4, 4)
-        # state size (ngf+nef) x 4 x 4
-        code = torch.cat((image_feature, condition), 1)
+        if self.bcondition:
+            condition = condition.view(-1, self.nef, 1, 1)
+            condition = condition.repeat(1, 1, 4, 4)
+            # state size (ngf+nef) x 4 x 4
+            code = torch.cat((image_feature, condition), 1)
+        else:
+            code = image_feature
 
         output = self.outlogits(code)
         return output.view(-1)

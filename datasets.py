@@ -7,46 +7,49 @@ import random
 
 import nltk
 import torch
+import torchvision.transforms as transforms
+from PIL import Image
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 from utils import get_image, load_filenames, load_embedding, load_class_id
-from utils import load_image_name_to_id, load_train_ids, \
-    segment_sentence_to_chunk
+from utils import load_boxes, load_train_ids, segment_sentence_to_chunk, load_image_name_to_id
 
 
 class GeneratorDataset(Dataset):
-    def __init__(self, arguments, vocab, image_transform):
+    def __init__(self, arguments, vocab):
         self.data_dir = arguments['data_dir']
         self.caption_file = arguments['caption_file']
         self.train_caption_file = arguments['train_caption_file']
         self.val_caption_file = arguments['val_caption_file']
         self.train_id_file = arguments['train_id_file']
         self.image_feature_file = arguments['image_feature_file']
+        self.box_file = arguments['box_file']
+        self.image_size = arguments["image_size"]
         self.image_path = os.path.join(self.data_dir, "images")
         self.train_path = os.path.join(self.data_dir, "train")
         self.im_div = 5
         self.vocab = vocab
-        self.transform = image_transform
+        self.region_transform = transforms.Compose([
+            transforms.Resize((self.image_size, self.image_size), interpolation=3),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
+
+        self.image_transform = transforms.Compose([
+            transforms.Resize((self.image_size, self.image_size), interpolation=3),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
         # load data
-        print "----------------load image features--------------"
-        # self.image_features = load_image_features(self.train_path, self.image_feature_file)
-        self.image_features = None
         print "----------------load image captions and segments--------------"
-        # Captions
-        self.captions1 = []
-        with open(os.path.join(self.train_path,self.caption_file), 'rb') as f:
-            for line in f:
-                self.captions1.append(line.strip())
-
         self.captions, self.segments = segment_sentence_to_chunk(self.train_path, self.caption_file)
-        for i,c in enumerate(self.captions):
-            print "caption: ", self.captions[i]
-            print "caption1: ", self.captions1[i]
+        print "----------------load image boxes--------------"
+        self.boxes = load_boxes(self.train_path, self.box_file)
         print "----------------load image ids--------------"
         self.image_ids = load_train_ids(self.train_path, self.train_id_file)
-        print "----------------load image ids 2 image names--------------"
+        print "----------------load image name to ids--------------"
         self.imageNameToId, self.imageIdToName = load_image_name_to_id(self.train_path, self.train_caption_file,
                                                                        self.val_caption_file)
 
@@ -59,8 +62,7 @@ class GeneratorDataset(Dataset):
     def __getitem__(self, index):
         # handle the image redundancy
         img_index = index / self.im_div
-        # image_feature = torch.Tensor(self.images[img_index])
-        image_feature = None
+
         caption = self.captions[index]
         segment = self.segments[index]
         vocab = self.vocab
@@ -68,7 +70,18 @@ class GeneratorDataset(Dataset):
         image_id = self.image_ids[img_index]
         image_name = self.imageIdToName[image_id]
         image_name = '%s/%s' % (self.image_path, image_name)
-        image = get_image(image_name, self.transform)
+        image = Image.open(image_name).convert('RGB')
+
+        box = self.boxes[img_index]
+        regions = []
+        for i, b in enumerate(box):
+            region = image.crop([b[0], b[1], b[0] + b[2], b[1] + b[3]])
+            # region.save("images/%s_%d.jpg" % (img_index, i))
+            region = self.region_transform(region)
+            regions.append(region)
+        regions = torch.stack(regions, dim=0)
+
+        image = self.image_transform(image)
 
         # Convert caption (string) to word ids.
         tokens = nltk.tokenize.word_tokenize(
@@ -79,7 +92,8 @@ class GeneratorDataset(Dataset):
         caption.extend([vocab(token) for token in tokens])
         caption.append(vocab('<end>'))
         caption = torch.Tensor(caption)
-        return image, image_feature, caption, segment, index, img_index
+
+        return image, regions, caption, segment, index, img_index
 
 
 class DiscriminatorDataset(Dataset):
@@ -136,11 +150,11 @@ def collate_fn(data):
     """
     # Sort a data list by caption length
     data.sort(key=lambda x: len(x[2]), reverse=True)
-    images, image_features, captions, segments, indexes, img_indexes = zip(*data)
+    images, regions, captions, segments, indexes, img_indexes = zip(*data)
 
     # Merge images (convert tuple of 3D tensor to 4D tensor)
-    # image_features = torch.stack(image_features, 0)
     images = torch.stack(images, 0)
+    regions = torch.stack(regions, 0)
 
     # Merget captions (convert tuple of 1D tensor to 2D tensor)
     lengths = [len(cap) for cap in captions]
@@ -149,11 +163,11 @@ def collate_fn(data):
         end = lengths[i]
         targets[i, :end] = cap[:end]
 
-    return images, image_features, targets, segments, lengths, indexes
+    return images, regions, targets, segments, lengths, indexes
 
 
-def get_loaders(arguments, vocab, batch_size, num_workers, image_transform=None):
-    generator_dataset = GeneratorDataset(arguments, vocab, image_transform)
+def get_loaders(arguments, vocab, batch_size, num_workers):
+    generator_dataset = GeneratorDataset(arguments, vocab)
     generator_data_loader = DataLoader(generator_dataset, batch_size=batch_size, shuffle=True,
                                        num_workers=num_workers, collate_fn=collate_fn)
 

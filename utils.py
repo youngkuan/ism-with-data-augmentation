@@ -516,6 +516,9 @@ def deserialize_vocab(train_path, voc_file):
     vocab.idx = d['idx']
     return vocab
 
+def load_boxes(train_path, box_file):
+    boxes = np.load(os.path.join(train_path,box_file))
+    return boxes
 
 if __name__ == '__main__':
     # train_image = Image.open("../data/mscoco2014/images/COCO_train2014_000000270070.jpg").convert('RGB')
