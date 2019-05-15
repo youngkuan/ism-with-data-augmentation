@@ -255,7 +255,7 @@ def save_image(image, synthetic_image_path, image_name):
 
 
 def save_img_results(data_img, fake, epoch, image_dir, batch_size):
-    num = batch_size
+    num = fake.size()[0]
     fake = fake[0:num]
     # data_img is changed to [0,1]
     if data_img is not None:

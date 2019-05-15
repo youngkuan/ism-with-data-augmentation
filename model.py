@@ -83,7 +83,7 @@ class SelfAttentive(nn.Module):
         self.rnn = nn.GRU(word_dim, embed_size, num_layers, batch_first=True, bidirectional=use_bi_gru)
 
         # Self Attention Layers
-        self.S1 = nn.Linear(embed_size * 2, da, bias=False)
+        self.S1 = nn.Linear(embed_size, da, bias=False)
         self.S2 = nn.Linear(da, r, bias=False)
 
 
@@ -92,7 +92,6 @@ class SelfAttentive(nn.Module):
 
         self.r = r
         self.nhid = embed_size
-        self.nlayers = embed_size
 
         if cuda:
             self.cuda()
@@ -115,12 +114,16 @@ class SelfAttentive(nn.Module):
 
         depacked_output, lens = pad_packed_sequence(output, batch_first=True, total_length=total_length)
 
+        if self.use_bi_gru:
+            depacked_output = (depacked_output[:, :, :depacked_output.size(2) / 2]
+                               + depacked_output[:, :, depacked_output.size(2) / 2:]) / 2
+
         if self.cuda:
-            BM = torch.zeros(input.size(0), self.r * self.nhid * 2).cuda()
+            BM = torch.zeros(input.size(0), self.r * self.nhid).cuda()
             penal = torch.zeros(1).cuda()
             I = torch.eye(self.r).cuda()
         else:
-            BM = torch.zeros(input.size(0), self.r * self.nhid * 2)
+            BM = torch.zeros(input.size(0), self.r * self.nhid)
             penal = torch.zeros(1)
             I = torch.eye(self.r)
         weights = {}

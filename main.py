@@ -13,7 +13,7 @@ if __name__ == '__main__':
     arguments['gpus'] = [0, 1]
 
     arguments['epochs'] = 120
-    arguments['batch_size'] = 16
+    arguments['batch_size'] = 2
     arguments['num_workers'] = 2
     arguments['learning_rate'] = 0.0002
     arguments['beta1'] = 0.5

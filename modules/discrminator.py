@@ -110,7 +110,7 @@ class ImageDiscriminator(nn.Module):
                 nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4),
                 nn.Sigmoid())
 
-    def forward(self, image, condition):
+    def forward(self, image, condition=None):
         image_feature = self.encode_image(image)
 
         if self.bcondition:
