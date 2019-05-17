@@ -13,20 +13,22 @@ if __name__ == '__main__':
     arguments['gpus'] = [0, 1]
 
     arguments['epochs'] = 120
-    arguments['batch_size'] = 2
+    arguments['batch_size'] = 4
     arguments['num_workers'] = 2
     arguments['learning_rate'] = 0.0002
     arguments['beta1'] = 0.5
     arguments['kl_coef'] = 2
     arguments['margin'] = 0.5
     arguments['lr_decay_step'] = 20
-    arguments["image_size"] = 64
+    arguments["image_size"] = 256
+    arguments["region_size"] = 64
 
     arguments['data_dir'] = "../data/mscoco2014"
     arguments['val_image_path'] = "../data/mscoco2014/val_images"
     arguments['train_path'] = "../data/mscoco2014/train"
     arguments['val_path'] = "../data/mscoco2014/val"
     arguments['synthetic_image_path'] = "../data/mscoco2014/synthetic_images"
+    arguments['synthetic_region_path'] = "../data/mscoco2014/synthetic_regions"
     arguments['model_save_path'] = "./models"
     arguments['loss_save_path'] = "./loss"
 
@@ -44,7 +46,8 @@ if __name__ == '__main__':
     print "emb_matrix: ",emb_matrix.size()
 
     # 上采样参数（upsample）
-    arguments['ngf'] = 192 * 8
+    # arguments['ngf'] = 192 * 8
+    arguments['ngf'] = 192
     arguments['ndf'] = 96
     arguments['num_channels'] = 3
     arguments['image_feature_size'] = 512

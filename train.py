@@ -9,8 +9,8 @@ import torch
 import torch.nn as nn
 
 from datasets import get_loaders
-from modules.discrminator import ImageDiscriminator, MatchDiscriminator
-from modules.generator import ImageGenerator
+from modules.discrminator import STAGE1_D, STAGE2_D, MatchDiscriminator
+from modules.generator import STAGE1_G, STAGE2_G
 from utils import deserialize_vocab
 from utils import save_discriminator_checkpoint, weights_init, save_img_results
 
@@ -35,6 +35,7 @@ class Trainer(object):
 
         self.model_save_path = arguments['model_save_path']
         self.loss_save_path = arguments['loss_save_path']
+        self.synthetic_region_path = arguments['synthetic_region_path']
         self.synthetic_image_path = arguments['synthetic_image_path']
         self.r = arguments['r']
         self.arguments = arguments
@@ -51,20 +52,30 @@ class Trainer(object):
                                                                          self.num_workers)
 
         # 图像生成器
-        self.image_generator = ImageGenerator(arguments).cuda()
+        self.region_generator = STAGE1_G(arguments).cuda()
+        self.region_generator.apply(weights_init)
+
+        self.image_generator = STAGE2_G(arguments).cuda()
         self.image_generator.apply(weights_init)
 
         # 合成图像判别器
-        self.image_discriminator = ImageDiscriminator(arguments).cuda()
+        self.region_discriminator = STAGE1_D(arguments).cuda()
+        self.image_discriminator = STAGE2_D(arguments).cuda()
 
         # 图像文本匹配判别器
         self.match_discriminator = MatchDiscriminator(arguments).cuda()
 
         # 优化器
+        self.region_generator_optimizer = \
+            torch.optim.Adam(self.region_generator.parameters(),
+                             self.learning_rate, (self.beta1, 0.999))
         self.image_generator_optimizer = \
             torch.optim.Adam(self.image_generator.parameters(),
                              self.learning_rate, (self.beta1, 0.999))
 
+        self.region_discriminator_optimizer = \
+            torch.optim.Adam(self.region_discriminator.parameters(),
+                             self.learning_rate, (self.beta1, 0.999))
         self.image_discriminator_optimizer = \
             torch.optim.Adam(self.image_discriminator.parameters(),
                              self.learning_rate, (self.beta1, 0.999))
@@ -73,10 +84,93 @@ class Trainer(object):
             torch.optim.Adam(self.match_discriminator.parameters(),
                              self.learning_rate, (self.beta1, 0.999))
 
+        self.real_region_labels = torch.FloatTensor(self.batch_size, self.r).fill_(1).cuda()
+        self.fake_region_labels = torch.FloatTensor(self.batch_size, self.r).fill_(0).cuda()
+
+        self.real_image_labels = torch.FloatTensor(self.batch_size).fill_(1).cuda()
+        self.fake_image_labels = torch.FloatTensor(self.batch_size).fill_(0).cuda()
+
+    def update_stage1(self, regions, captions, hidden, lengths, criterion, epoch, iteration):
+        # 更新判别器
+        self.region_discriminator_optimizer.zero_grad()
+
+        fake_regions, penal, hidden, mu = self.region_generator(captions, hidden, lengths)
+
+        fake_regions = fake_regions.view(fake_regions.size()[0] * fake_regions.size()[1],
+                                         fake_regions.size()[2],
+                                         fake_regions.size()[3],
+                                         fake_regions.size()[4])
+        fake_region_scores = nn.parallel.data_parallel(self.region_discriminator, fake_regions, self.gpus)
+
+        regions = regions.view(regions.size()[0] * regions.size()[1],
+                               regions.size()[2],
+                               regions.size()[3],
+                               regions.size()[4])
+        real_region_scores = nn.parallel.data_parallel(self.region_discriminator, regions, self.gpus)
+
+        errD_fake = criterion(fake_region_scores, self.fake_region_labels)
+        errD_real = criterion(real_region_scores, self.real_region_labels)
+        errD = errD_real.sum() + errD_fake.sum() + penal
+
+        errD.backward(retain_graph=True)
+        self.region_discriminator_optimizer.step()
+
+        # 更新生成器
+        self.region_generator_optimizer.zero_grad()
+
+        fake_regions, penal, hidden, mu = self.region_generator(captions, hidden, lengths)
+        fake_regions = fake_regions.view(fake_regions.size()[0] * fake_regions.size()[1],
+                                         fake_regions.size()[2],
+                                         fake_regions.size()[3], fake_regions.size()[4])
+
+        fake_region_scores = nn.parallel.data_parallel(self.region_discriminator, fake_regions, self.gpus)
+        errG_fake = criterion(fake_region_scores, self.real_region_labels)
+        errG = errG_fake.sum() + penal
+
+        errG.backward(retain_graph=True)
+        self.region_generator_optimizer.step()
+
+        save_img_results(regions, fake_regions, epoch, self.synthetic_region_path, self.batch_size)
+        print("Epoch: %d, iteration: %d, STAGE I , errD: %f, errG: %f" % (epoch, iteration, errD.data, errG.data))
+
+    def update_stage2(self, images, captions, hidden, lengths, criterion, epoch, iteration):
+        # 更新判别器
+        self.image_discriminator_optimizer.zero_grad()
+
+        fake_images, penal, hidden, mu = self.image_generator(captions, hidden, lengths)
+
+        fake_image_scores = nn.parallel.data_parallel(self.image_discriminator, fake_images, self.gpus)
+        real_image_scores = nn.parallel.data_parallel(self.image_discriminator, images, self.gpus)
+
+        errD_fake = criterion(fake_image_scores, self.fake_image_labels)
+        errD_real = criterion(real_image_scores, self.real_image_labels)
+        errD = errD_real.sum() + errD_fake.sum() + penal
+
+        errD.backward(retain_graph=True)
+        self.image_discriminator_optimizer.step()
+
+        # 更新生成器
+        self.image_generator_optimizer.zero_grad()
+
+        fake_images, penal, hidden, mu = self.image_generator(captions, hidden, lengths)
+
+        fake_image_scores = nn.parallel.data_parallel(self.image_discriminator, fake_images, self.gpus)
+        errG_fake = criterion(fake_image_scores, self.real_image_labels)
+        errG = errG_fake.sum() + penal
+
+        errG.backward(retain_graph=True)
+        self.image_generator_optimizer.step()
+
+        save_img_results(images, fake_images, epoch, self.synthetic_image_path, self.batch_size)
+        print("Epoch: %d, iteration: %d, STAGE II, errD: %f, errG: %f" % (epoch, iteration, errD.data, errG.data))
+
+
     def train_generator(self):
+        """
+        训练图像区域生成器
+        :return:
+        """
         bce_loss = nn.BCELoss(reduce=False)
-        real_labels = torch.FloatTensor(self.batch_size, self.r).fill_(1).cuda()
-        fake_labels = torch.FloatTensor(self.batch_size, self.r).fill_(0).cuda()
 
         for epoch in range(self.epochs):
             if epoch % self.lr_decay_step == 0 and epoch > 0:
@@ -89,80 +183,19 @@ class Trainer(object):
             hidden = self.image_generator.txt_enc.init_hidden(self.batch_size)
 
             for i, train_data in enumerate(self.generator_data_loader):
-                # images -> batch*(3*64*64)
-                # regions -> batch*36*(3*64*64)
-                images, regions, captions, lengths, indexes = train_data
 
+                images, regions, captions, lengths, indexes = train_data
                 if torch.cuda.is_available():
                     images = images.cuda()
                     regions = regions.cuda()
                     captions = captions.cuda()
 
-                # 更新判别器
-                self.image_discriminator_optimizer.zero_grad()
+                self.update_stage1(regions, captions, hidden, lengths, bce_loss, epoch, i)
+                self.update_stage2(images, captions, hidden, lengths, bce_loss, epoch, i)
 
-                # fake_images -> batch * r * (3*64*64)
-                # mu -> batch * condition_dimension
-                fake_regions, penal, hidden, mu = self.image_generator(captions, hidden, lengths)
-
-                # pack
-                fake_regions = fake_regions.view(fake_regions.size()[0] * fake_regions.size()[1],
-                                                 fake_regions.size()[2],
-                                                 fake_regions.size()[3],
-                                                 fake_regions.size()[4])
-
-                fake_image_scores = nn.parallel.data_parallel(self.image_discriminator, fake_regions, self.gpus)
-                # fake_image_scores -> batch * word_count
-
-                # unpack
-                # fake_image_scores = fake_image_scores.view(self.batch_size, -1)
-
-                regions = regions.view(regions.size()[0] * regions.size()[1],
-                                       regions.size()[2],
-                                       regions.size()[3],
-                                       regions.size()[4])
-                real_image_scores = nn.parallel.data_parallel(self.image_discriminator, regions, self.gpus)
-
-                # wrong_images = images[:(images.size()[0] - 1)]
-                # wrong_image_scores = nn.parallel.data_parallel(self.image_discriminator, inputs, self.gpus)
-
-                errD_fake = bce_loss(fake_image_scores, fake_labels)
-                # errD_wrong = bce_loss(wrong_image_scores, fake_labels[1:])
-                errD_real = bce_loss(real_image_scores, real_labels)
-                # errD = errD_real + (errD_fake + errD_wrong) * 0.5
-                errD = errD_real.sum() + errD_fake.sum() + penal
-                errD.backward(retain_graph=True)
-                self.image_discriminator_optimizer.step()
-
-                # 更新生成器
-                self.image_generator_optimizer.zero_grad()
-
-                # fake_regions -> batch * r * (3*64*64)
-                # mu -> batch * condition_dimension
-                fake_regions, penal, hidden, mu = self.image_generator(captions, hidden, lengths)
-
-                # fake_image_scores -> batch * word_count
-                # pack
-                fake_regions = fake_regions.view(fake_regions.size()[0] * fake_regions.size()[1],
-                                                 fake_regions.size()[2],
-                                                 fake_regions.size()[3], fake_regions.size()[4])
-
-                fake_image_scores = nn.parallel.data_parallel(self.image_discriminator, fake_regions, self.gpus)
-
-                # unpack
-                # fake_image_scores = fake_image_scores.view(self.batch_size, -1)
-
-                errG_fake = bce_loss(fake_image_scores, real_labels)
-                errG = errG_fake.sum() + penal
-                errG.backward(retain_graph=True)
-                self.image_generator_optimizer.step()
-
-                save_img_results(regions, fake_regions, epoch, self.synthetic_image_path, self.batch_size)
-                print("Epoch: %d, iteration: %d, errD: %f, errG: %f" % (epoch, i, errD.data, errG.data))
 
     def train_matching_gan(self):
         margin_ranking_loss = nn.MarginRankingLoss(self.margin)
-
         for epoch in range(self.epochs):
             for sample in self.match_data_loader:
                 images = sample['images']

@@ -13,7 +13,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 from utils import get_image, load_filenames, load_embedding, load_class_id
-from utils import load_boxes, load_train_ids, segment_sentence_to_chunk, load_image_name_to_id
+from utils import load_boxes, load_train_ids, load_image_name_to_id
 
 
 class GeneratorDataset(Dataset):
@@ -26,12 +26,13 @@ class GeneratorDataset(Dataset):
         self.image_feature_file = arguments['image_feature_file']
         self.box_file = arguments['box_file']
         self.image_size = arguments["image_size"]
+        self.region_size = arguments["region_size"]
         self.image_path = os.path.join(self.data_dir, "images")
         self.train_path = os.path.join(self.data_dir, "train")
         self.im_div = 5
         self.vocab = vocab
         self.region_transform = transforms.Compose([
-            transforms.Resize((self.image_size, self.image_size), interpolation=3),
+            transforms.Resize((self.region_size, self.region_size), interpolation=3),
             transforms.RandomHorizontalFlip(),
             transforms.ToTensor(),
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
@@ -78,8 +79,8 @@ class GeneratorDataset(Dataset):
         box = self.boxes[img_index]
         regions = []
         for i, b in enumerate(box):
-            region = image.crop([b[0], b[1], b[0] + b[2], b[1] + b[3]])
-            # region.save("images/%s_%d.jpg" % (img_index, i))
+            region = image.crop((b[0], b[1], b[2], b[3]))
+            region.save("images/%s_%d.jpg" % (img_index, i))
             region = self.region_transform(region)
             regions.append(region)
         regions = torch.stack(regions, dim=0)

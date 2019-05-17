@@ -69,9 +69,9 @@ class MatchDiscriminator(nn.Module):
         return output.view(-1, 1).squeeze(1)
 
 
-class ImageDiscriminator(nn.Module):
+class STAGE1_D(nn.Module):
     def __init__(self, arguments):
-        super(ImageDiscriminator, self).__init__()
+        super(STAGE1_D, self).__init__()
         self.image_feature_size = arguments["image_feature_size"]
         self.ndf = arguments['ndf']
         self.nef = arguments["condition_dimension"]
@@ -113,6 +113,69 @@ class ImageDiscriminator(nn.Module):
     def forward(self, image, condition=None):
         image_feature = self.encode_image(image)
 
+        if self.bcondition:
+            condition = condition.view(-1, self.nef, 1, 1)
+            condition = condition.repeat(1, 1, 4, 4)
+            # state size (ngf+nef) x 4 x 4
+            code = torch.cat((image_feature, condition), 1)
+        else:
+            code = image_feature
+
+        output = self.outlogits(code)
+        return output.view(-1)
+
+
+class STAGE2_D(nn.Module):
+    def __init__(self, arg):
+        super(STAGE2_D, self).__init__()
+        self.df_dim = arg['ndf']
+        self.ef_dim = arg["condition_dimension"]
+        self.bcondition = arg["bcondition"]
+        self.define_module()
+
+    def define_module(self):
+        ndf, nef = self.df_dim, self.ef_dim
+
+        self.encode_image = nn.Sequential(
+            nn.Conv2d(3, ndf, 4, 2, 1, bias=False),  # 128 * 128 * ndf
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(ndf, ndf * 2, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 2),
+            nn.LeakyReLU(0.2, inplace=True),  # 64 * 64 * ndf * 2
+            nn.Conv2d(ndf * 2, ndf * 4, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 4),
+            nn.LeakyReLU(0.2, inplace=True),  # 32 * 32 * ndf * 4
+            nn.Conv2d(ndf * 4, ndf * 8, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, inplace=True),  # 16 * 16 * ndf * 8
+            nn.Conv2d(ndf * 8, ndf * 16, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 16),
+            nn.LeakyReLU(0.2, inplace=True),  # 8 * 8 * ndf * 16
+            nn.Conv2d(ndf * 16, ndf * 32, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(ndf * 32),
+            nn.LeakyReLU(0.2, inplace=True),  # 4 * 4 * ndf * 32
+            conv3x3(ndf * 32, ndf * 16),
+            nn.BatchNorm2d(ndf * 16),
+            nn.LeakyReLU(0.2, inplace=True),  # 4 * 4 * ndf * 16
+            conv3x3(ndf * 16, ndf * 8),
+            nn.BatchNorm2d(ndf * 8),
+            nn.LeakyReLU(0.2, inplace=True)  # 4 * 4 * ndf * 8
+        )
+
+        if self.bcondition:
+            self.outlogits = nn.Sequential(
+                conv3x3(ndf * 8 + nef, ndf * 8),
+                nn.BatchNorm2d(ndf * 8),
+                nn.LeakyReLU(0.2, inplace=True),
+                nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4),
+                nn.Sigmoid())
+        else:
+            self.outlogits = nn.Sequential(
+                nn.Conv2d(ndf * 8, 1, kernel_size=4, stride=4),
+                nn.Sigmoid())
+
+    def forward(self, image, condition=None):
+        image_feature = self.encode_image(image)
         if self.bcondition:
             condition = condition.view(-1, self.nef, 1, 1)
             condition = condition.repeat(1, 1, 4, 4)

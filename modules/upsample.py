@@ -38,14 +38,16 @@ class CA_NET(nn.Module):
         return c_code, mu, logvar
 
 
-class UpsampleNetwork(nn.Module):
-    def __init__(self, arguments):
-        super(UpsampleNetwork, self).__init__()
-        self.ngf = arguments['ngf']
-        self.input_dim = arguments['noise_dim'] + arguments["condition_dimension"]
+class UPSAMPLE_BLOCK(nn.Module):
+    def __init__(self, arg):
+        super(UPSAMPLE_BLOCK, self).__init__()
+        self.ngf = arg['ngf']
+        self.input_dim = arg['noise_dim'] + arg["condition_dimension"]
+        self.r = arg['r']
+        self.batch_size = arg['batch_size']
 
         # SENTENCE.DIMENSION -> GAN.CONDITION_DIMENSION
-        self.ca_net = CA_NET(arguments)
+        self.ca_net = CA_NET(arg)
 
         self.fc = nn.Sequential(
             nn.Linear(self.input_dim, self.ngf * 4 * 4, bias=False),
@@ -56,14 +58,24 @@ class UpsampleNetwork(nn.Module):
         self.upsample2 = self.upsample(self.ngf // 2, self.ngf // 4)
         self.upsample3 = self.upsample(self.ngf // 4, self.ngf // 8)
         self.upsample4 = self.upsample(self.ngf // 8, self.ngf // 16)
-        # self.upsample5 = self.upsample(self.ngf // 16, self.ngf // 32)
-        # self.upsample6 = self.upsample(self.ngf // 32, self.ngf // 64)
-        #
-        # self.reshape = nn.Conv2d(self.ngf // 64, self.ngf // 64, kernel_size=9, dilation=4)
+        self.upsample5 = self.upsample(self.r * self.ngf // 16, self.r * self.ngf // 32)
+        self.upsample6 = self.upsample(self.r * self.ngf // 32, self.r * self.ngf // 64)
 
-        self.img = nn.Sequential(
+        self.region = nn.Sequential(
             self.conv3x3(self.ngf // 16, 3),
             nn.Tanh())
+
+        self.image = nn.Sequential(
+            self.conv3x3(self.r * self.ngf // 64, 3),
+            nn.Tanh())
+
+    def upsample(self, in_channels, out_channels):
+        block = nn.Sequential(
+            nn.Upsample(scale_factor=2, mode='nearest'),
+            self.conv3x3(in_channels, out_channels),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(True))
+        return block
 
     def conv3x3(self, in_channels, out_channels):
         """
@@ -74,14 +86,6 @@ class UpsampleNetwork(nn.Module):
         """
         return nn.Conv2d(in_channels, out_channels, kernel_size=3, stride=1,
                          padding=1, bias=False)
-
-    def upsample(self, in_channels, out_channels):
-        block = nn.Sequential(
-            nn.Upsample(scale_factor=2, mode='nearest'),
-            self.conv3x3(in_channels, out_channels),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(True))
-        return block
 
     def forward(self, sentence_embedding, noise):
         c_code, mu, logvar = self.ca_net(sentence_embedding)
@@ -97,16 +101,14 @@ class UpsampleNetwork(nn.Module):
         # state size ngf/8 x 32 x 32
         output = self.upsample3(output)
         # state size ngf/16 x 64 x 64
-        output = self.upsample4(output)
+        stage1_output = self.upsample4(output)
 
-        # output = self.upsample5(output)
+
+        output = stage1_output.view(self.batch_size, -1,
+                                    stage1_output.size()[2], stage1_output.size()[3])
+        output = self.upsample5(output)
         # # -> upsample5: self.ngf/32 * (128*128)
-        # output = self.upsample6(output)
+        stage2_output = self.upsample6(output)
         # # -> upsample6: self.ngf/64 * (256*256)
-        # output = self.reshape(output)
-        # # -> reshape: self.ngf/64 * (224*224)
 
-        # state size 3 x 224 x 224
-        fake_img = self.img(output)
-        fake_img = fake_img.view(mu.size()[0], mu.size()[1], fake_img.size()[1], fake_img.size()[2], fake_img.size()[3])
-        return fake_img, mu, logvar
+        return stage2_output, stage1_output, mu, logvar
