@@ -1,9 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ####################### 主函数 ############################
-
-from evaluation import evaluate
-from train import Trainer
+from train import GANTrainer,MTrainer
 import torch
 import os
 
@@ -18,7 +16,6 @@ if __name__ == '__main__':
     arguments['learning_rate'] = 0.0002
     arguments['beta1'] = 0.5
     arguments['kl_coef'] = 2
-    arguments['margin'] = 0.5
     arguments['lr_decay_step'] = 20
     arguments["image_size"] = 256
     arguments["region_size"] = 64
@@ -68,7 +65,21 @@ if __name__ == '__main__':
     # 噪声维度
     arguments['noise_dim'] = 100
 
-    trainer = Trainer(arguments)
-    trainer.train()
+    # 图文匹配判别器参数
+    ### 图像区域特征的维度
+    arguments['img_dim'] = 2048
+    arguments['common_size'] = 1024
+    arguments['match_learning_rate'] = 0.0002
+    arguments['precomp_enc_type'] = 'basic'
+    arguments['no_imgnorm'] = True
+    arguments['margin'] = 0.5
+    arguments['max_violation'] = True
+    arguments['lambda_softmax'] = 9.0
+    arguments['agg_func'] = 'LogSumExp'
+    arguments['lambda_lse'] = 6.0
 
-    evaluate(arguments)
+    ganTrainer = GANTrainer(arguments)
+    ganTrainer.train()
+
+    mTrainer = MTrainer(arguments)
+    mTrainer.train()

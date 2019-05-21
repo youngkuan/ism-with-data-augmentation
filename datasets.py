@@ -4,7 +4,7 @@
 
 import os
 import random
-
+import numpy as np
 import nltk
 import torch
 import torchvision.transforms as transforms
@@ -12,7 +12,6 @@ from PIL import Image
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
-from utils import get_image, load_filenames, load_embedding, load_class_id
 from utils import load_boxes, load_train_ids, load_image_name_to_id
 
 
@@ -44,7 +43,7 @@ class GeneratorDataset(Dataset):
             transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
 
         # load data
-        print "----------------load image captions and segments--------------"
+        print "----------------load image captions--------------"
         # Captions
         self.captions = []
         with open(os.path.join(self.train_path,self.caption_file), 'rb') as f:
@@ -101,46 +100,58 @@ class GeneratorDataset(Dataset):
 
 
 class DiscriminatorDataset(Dataset):
-    def __init__(self, arguments, transform=None, embedding_type='cnn-rnn'):
+    def __init__(self, arguments, data_split, vocab):
         self.data_dir = arguments['data_dir']
         self.image_path = os.path.join(self.data_dir, "images")
         self.train_path = os.path.join(self.data_dir, "train")
-        self.embedding_type = embedding_type
+        self.caption_file = arguments['caption_file']
+        self.image_feature_file = arguments['image_feature_file']
 
-        self.filenames = load_filenames(self.train_path)
-        self.embeddings = load_embedding(self.train_path, embedding_type)
-        self.class_id = load_class_id(self.train_path, len(self.filenames))
+        self.vocab = vocab
 
-        self.transform = transform
+        # load data
+        print "----------------load image captions--------------"
+        # Captions
+        self.captions = []
+        with open(os.path.join(self.train_path, '%s_caps.txt' % data_split), 'rb') as f:
+            for line in f:
+                self.captions.append(line.strip())
+
+        # Image features
+        print "----------------load image features--------------"
+        self.images = np.load(os.path.join(self.train_path, '%s_ims.npy' % data_split))
+
+        self.length = len(self.captions)
+
+        self.im_div = 5
+
+        if data_split == 'dev':
+            self.length = 5000
+
 
     def __len__(self):
-        return len(self.filenames)
+        return self.length
 
     def __getitem__(self, index):
-        key = self.filenames[index]
-        embeddings = self.embeddings[index, :, :]
-        embedding_ix = random.randint(0, embeddings.shape[0] - 1)
-        embeddings = embeddings[embedding_ix, :]
+        # handle the image redundancy
+        img_id = index / self.im_div
+        image = torch.Tensor(self.images[img_id])
+        caption = self.captions[index]
+        vocab = self.vocab
 
-        image_name = '%s/%s.jpg' % (self.image_path, key)
-        images = get_image(image_name, self.transform)
+        # Convert caption (string) to word ids.
+        tokens = nltk.tokenize.word_tokenize(
+            str(caption).lower().decode('utf-8'))
+        caption = []
+        caption.append(vocab('<start>'))
+        caption.extend([vocab(token) for token in tokens])
+        caption.append(vocab('<end>'))
+        target = torch.Tensor(caption)
 
-        unmatched_index = random.randint(0, len(self.filenames) - 1)
-        while abs(unmatched_index - index) < 10:
-            unmatched_index = random.randint(0, len(self.filenames) - 1)
-
-        unmatched_image_name = '%s/%s.jpg' % (self.image_path, self.filenames[unmatched_index])
-        unmatched_images = get_image(unmatched_image_name, self.transform)
-
-        sample = {
-            'embeddings': embeddings,
-            'images': images,
-            'unmatched_images': unmatched_images
-        }
-        return sample
+        return image, target, index, img_id
 
 
-def collate_fn(data):
+def collate_GData(data):
     """Build mini-batch tensors from a list of (image, caption) tuples.
     Args:
         data: list of (image, caption) tuple.
@@ -169,15 +180,50 @@ def collate_fn(data):
 
     return images, regions, targets, lengths, indexes
 
+def collate_DData(data):
+    """Build mini-batch tensors from a list of (image, caption) tuples.
+    Args:
+        data: list of (image, caption) tuple.
+            - image: torch tensor of shape (3, 256, 256).
+            - caption: torch tensor of shape (?); variable length.
 
-def get_loaders(arguments, vocab, batch_size, num_workers):
-    generator_dataset = GeneratorDataset(arguments, vocab)
-    generator_data_loader = DataLoader(generator_dataset, batch_size=batch_size, shuffle=True,
-                                       num_workers=num_workers, collate_fn=collate_fn)
+    Returns:
+        images: torch tensor of shape (batch_size, 3, 256, 256).
+        targets: torch tensor of shape (batch_size, padded_length).
+        lengths: list; valid length for each padded caption.
+    """
+    # Sort a data list by caption length
+    data.sort(key=lambda x: len(x[2]), reverse=True)
+    images, captions, indexes, img_indexes = zip(*data)
 
-    match_dataset = DiscriminatorDataset(arguments)
-    match_data_loader = DataLoader(match_dataset, batch_size=batch_size,
+    # Merge images (convert tuple of 3D tensor to 4D tensor)
+    images = torch.stack(images, 0)
+
+    # Merget captions (convert tuple of 1D tensor to 2D tensor)
+    lengths = [len(cap) for cap in captions]
+    targets = torch.zeros(len(captions), max(lengths)).long()
+    for i, cap in enumerate(captions):
+        end = lengths[i]
+        targets[i, :end] = cap[:end]
+
+    return images, targets, lengths, indexes
+
+
+
+
+def get_gan_loaders(arguments, vocab, batch_size, num_workers):
+    dataset = GeneratorDataset(arguments, vocab)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
+                                       num_workers=num_workers, collate_fn=collate_GData)
+
+    return loader
+
+def get_loader(arguments, vocab, split_name):
+
+    batch_size = arguments['batch_size']
+    num_workers = arguments['num_workers']
+    dataset = DiscriminatorDataset(arguments, split_name, vocab)
+    loader = DataLoader(dataset, batch_size=batch_size,
                                    shuffle=True,
-                                   num_workers=num_workers)
-
-    return generator_data_loader, match_data_loader
+                                   num_workers=num_workers, collate_fn=collate_DData)
+    return loader

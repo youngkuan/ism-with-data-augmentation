@@ -102,13 +102,9 @@ class UPSAMPLE_BLOCK(nn.Module):
         output = self.upsample3(output)
         # state size ngf/16 x 64 x 64
         stage1_output = self.upsample4(output)
-
-
-        output = stage1_output.view(self.batch_size, -1,
-                                    stage1_output.size()[2], stage1_output.size()[3])
+        output = stage1_output.view(-1, self.r * self.ngf // 16,stage1_output.size(2),stage1_output.size(3))
         output = self.upsample5(output)
         # # -> upsample5: self.ngf/32 * (128*128)
         stage2_output = self.upsample6(output)
         # # -> upsample6: self.ngf/64 * (256*256)
-
         return stage2_output, stage1_output, mu, logvar
