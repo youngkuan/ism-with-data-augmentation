@@ -8,7 +8,7 @@ import os
 if __name__ == '__main__':
     arguments = {}
 
-    arguments['gpus'] = [0, 1]
+    arguments['gpus'] = [0,1]
 
     arguments['epochs'] = 120
     arguments['batch_size'] = 4
@@ -50,7 +50,7 @@ if __name__ == '__main__':
     arguments['image_feature_size'] = 512
 
     arguments["word_dim"] = 200
-    arguments["embed_size"] = 1024
+    arguments["embed_size"] = 512 # 此处是common size的1/2
     arguments['num_layers'] = 1
     arguments['da'] = 350
     arguments['r'] = 36
@@ -72,14 +72,17 @@ if __name__ == '__main__':
     arguments['match_learning_rate'] = 0.0002
     arguments['precomp_enc_type'] = 'basic'
     arguments['no_imgnorm'] = True
+    arguments['grad_clip'] = 2.0
     arguments['margin'] = 0.5
     arguments['max_violation'] = True
     arguments['lambda_softmax'] = 9.0
     arguments['agg_func'] = 'LogSumExp'
     arguments['lambda_lse'] = 6.0
+    arguments['cross_attn'] = 't2i'
+    arguments['raw_feature_norm'] = 'clipped_l2norm'
 
     ganTrainer = GANTrainer(arguments)
     ganTrainer.train()
 
-    mTrainer = MTrainer(arguments)
-    mTrainer.train()
+    # mTrainer = MTrainer(arguments)
+    # mTrainer.train()

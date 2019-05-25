@@ -55,11 +55,11 @@ class STAGE1_G(nn.Module):
         stage2_outputs, stage1_outputs, mus, logvars = self.upsample_block(embed, noise)
 
         stage1_outputs = self.region(stage1_outputs)
-        regions = stage1_outputs.view(self.batch_size, -1,
+        regions = stage1_outputs.view(-1, self.r,
                                       stage1_outputs.size()[1], stage1_outputs.size()[2],
                                       stage1_outputs.size()[3])
 
-        return regions, penal, hidden, mus, BM
+        return regions, penal, hidden, mus, embed
 
 
 class STAGE2_G(nn.Module):

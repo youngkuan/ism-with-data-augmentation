@@ -3,9 +3,9 @@
 ####################### 数据加载器 ############################
 
 import os
-import random
-import numpy as np
+
 import nltk
+import numpy as np
 import torch
 import torchvision.transforms as transforms
 from PIL import Image
@@ -46,7 +46,7 @@ class GeneratorDataset(Dataset):
         print "----------------load image captions--------------"
         # Captions
         self.captions = []
-        with open(os.path.join(self.train_path,self.caption_file), 'rb') as f:
+        with open(os.path.join(self.train_path, self.caption_file), 'rb') as f:
             for line in f:
                 self.captions.append(line.strip())
         print "----------------load image boxes--------------"
@@ -128,7 +128,6 @@ class DiscriminatorDataset(Dataset):
         if data_split == 'dev':
             self.length = 5000
 
-
     def __len__(self):
         return self.length
 
@@ -180,6 +179,7 @@ def collate_GData(data):
 
     return images, regions, targets, lengths, indexes
 
+
 def collate_DData(data):
     """Build mini-batch tensors from a list of (image, caption) tuples.
     Args:
@@ -193,7 +193,7 @@ def collate_DData(data):
         lengths: list; valid length for each padded caption.
     """
     # Sort a data list by caption length
-    data.sort(key=lambda x: len(x[2]), reverse=True)
+    data.sort(key=lambda x: len(x[1]), reverse=True)
     images, captions, indexes, img_indexes = zip(*data)
 
     # Merge images (convert tuple of 3D tensor to 4D tensor)
@@ -209,21 +209,21 @@ def collate_DData(data):
     return images, targets, lengths, indexes
 
 
-
-
 def get_gan_loaders(arguments, vocab, batch_size, num_workers):
     dataset = GeneratorDataset(arguments, vocab)
-    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                                       num_workers=num_workers, collate_fn=collate_GData)
+    loader = DataLoader(dataset, batch_size=batch_size, shuffle=True, pin_memory=True,
+                        num_workers=num_workers, collate_fn=collate_GData)
 
     return loader
 
-def get_loader(arguments, vocab, split_name):
 
+def get_loader(arguments, vocab, split_name):
     batch_size = arguments['batch_size']
     num_workers = arguments['num_workers']
     dataset = DiscriminatorDataset(arguments, split_name, vocab)
+    print "dataset: ",dataset.length
     loader = DataLoader(dataset, batch_size=batch_size,
-                                   shuffle=True,
-                                   num_workers=num_workers, collate_fn=collate_DData)
+                        shuffle=True,
+                        pin_memory=True,
+                        num_workers=num_workers, collate_fn=collate_DData)
     return loader

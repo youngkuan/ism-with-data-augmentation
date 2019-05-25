@@ -189,8 +189,8 @@ class SelfAttentive(nn.Module):
         self.r = r
         self.nhid = embed_size
 
-        if cuda:
-            self.cuda()
+        self.cuda = cuda
+
 
     def init_weights(self):
         initrange = 0.1

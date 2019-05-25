@@ -114,17 +114,8 @@ class GANTrainer(object):
 
         fake_regions, penal, hidden, mu, BM = self.region_generator(captions, lengths)
 
-        fake_regions = fake_regions.view(fake_regions.size()[0] * fake_regions.size()[1],
-                                         fake_regions.size()[2],
-                                         fake_regions.size()[3],
-                                         fake_regions.size()[4])
         region_feature, fake_region_scores = nn.parallel.data_parallel(self.region_discriminator, fake_regions,
                                                                        self.gpus)
-
-        regions = regions.view(regions.size()[0] * regions.size()[1],
-                               regions.size()[2],
-                               regions.size()[3],
-                               regions.size()[4])
 
         region_feature, real_region_scores = nn.parallel.data_parallel(self.region_discriminator, regions, self.gpus)
 
@@ -142,9 +133,6 @@ class GANTrainer(object):
         self.region_generator_optimizer.zero_grad()
 
         fake_regions, penal, hidden, mu, BM = self.region_generator(captions, lengths)
-        fake_regions = fake_regions.view(fake_regions.size()[0] * fake_regions.size()[1],
-                                         fake_regions.size()[2],
-                                         fake_regions.size()[3], fake_regions.size()[4])
 
         region_feature, fake_region_scores = nn.parallel.data_parallel(self.region_discriminator, fake_regions,
                                                                        self.gpus)
@@ -157,10 +145,12 @@ class GANTrainer(object):
         # save model
         if iteration % 1000 == 0:
             region_g_file = os.path.join(self.model_save_path, '%d_region_g.pth.tar' % epoch)
-            save_checkpoint(self.region_generator, True, region_g_file, prefix='')
+            save_checkpoint(self.region_generator.state_dict(), True, region_g_file, prefix='')
             region_d_file = os.path.join(self.model_save_path, '%d_region_d.pth.tar' % epoch)
-            save_checkpoint(self.region_discriminator, True, region_d_file, prefix='')
+            save_checkpoint(self.region_discriminator.state_dict(), True, region_d_file, prefix='')
 
+        regions = regions.view(-1, regions.size(2), regions.size(3), regions.size(4))
+        fake_regions = fake_regions.view(-1, fake_regions.size(2), fake_regions.size(3), fake_regions.size(4))
         save_img_results(regions, fake_regions, epoch, self.synthetic_region_path, self.batch_size)
         print("Epoch: %d, iteration: %d, STAGE I , errD: %f, errG: %f" % (epoch, iteration, errD.data, errG.data))
 
@@ -247,8 +237,8 @@ class MTrainer(object):
         self.learning_rate = arguments['learning_rate']
 
         self.model_save_path = arguments['model_save_path']
-        self.region_g_path = os.path.join(self.model_save_path, "region_g.pth")
-        self.region_d_path = os.path.join(self.model_save_path, "region_d.pth")
+        self.region_g_path = os.path.join(self.model_save_path, "0_region_g.pth.tar")
+        self.region_d_path = os.path.join(self.model_save_path, "0_region_d.pth.tar")
         self.arguments = arguments
 
         self.data_dir = arguments['data_dir']
@@ -259,13 +249,15 @@ class MTrainer(object):
         vocab = deserialize_vocab(self.train_path, self.voc_file)
         arguments['vocab_size'] = len(vocab)
 
-        self.match_data_loader = get_loader(arguments, vocab, 'train')
+        # self.train_loader = get_loader(arguments, vocab, 'train')
 
         self.val_loader = get_loader(arguments, vocab, 'dev')
         # 加载预训练生成器
+        print "load region generator"
         self.region_generator = STAGE1_G(arguments).cuda()
         self.region_generator.load_state_dict(torch.load(os.path.join(self.region_g_path)))
 
+        print "load region discriminator"
         self.region_discriminator = STAGE1_D(arguments).cuda()
         self.region_discriminator.load_state_dict(torch.load(os.path.join(self.region_d_path)))
 
@@ -278,8 +270,9 @@ class MTrainer(object):
         训练
         :return:
         """
+        best_rsum = 0
         for epoch in range(self.epochs):
-            for sample in self.match_data_loader:
+            for i, sample in enumerate(self.val_loader):
                 images, captions, lengths, indexes = sample
 
                 if torch.cuda.is_available():
@@ -288,19 +281,19 @@ class MTrainer(object):
 
                 self.match_discriminator.train_emb(images, captions, lengths, epoch)
 
-            # evaluate on validation set
-            rsum = validate(self.arguments, self.val_loader, self.match_discriminator)
+        # evaluate on validation set
+        rsum = validate(self.arguments, self.val_loader, self.match_discriminator)
 
-            # remember best R@ sum and save checkpoint
-            is_best = rsum > best_rsum
-            best_rsum = max(rsum, best_rsum)
-            if not os.path.exists(self.arguments['model_save_path']):
-                os.mkdir(self.arguments['model_save_path'])
+        # remember best R@ sum and save checkpoint
+        is_best = rsum > best_rsum
+        best_rsum = max(rsum, best_rsum)
+        if not os.path.exists(self.arguments['model_save_path']):
+            os.mkdir(self.arguments['model_save_path'])
 
-            save_checkpoint({
-                'epoch': epoch + 1,
-                'model': self.match_discriminator.state_dict(),
-                'best_rsum': best_rsum,
-                'opt': self.arguments,
-                'Eiters': self.match_discriminator.Eiters,
-            }, is_best, filename='checkpoint_{}.pth.tar'.format(epoch), prefix=self.arguments['model_save_path'] + '/')
+        save_checkpoint({
+            'epoch': epoch + 1,
+            'model': self.match_discriminator.state_dict(),
+            'best_rsum': best_rsum,
+            'opt': self.arguments,
+            'Eiters': self.match_discriminator.Eiters,
+        }, is_best, filename='checkpoint_{}.pth.tar'.format(epoch), prefix=self.arguments['model_save_path'] + '/')

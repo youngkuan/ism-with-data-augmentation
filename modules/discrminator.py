@@ -11,8 +11,7 @@
 import torch
 import torch.nn as nn
 from torch.nn.utils.clip_grad import clip_grad_norm
-import time
-import numpy
+
 from model import EncoderImage
 
 
@@ -21,12 +20,14 @@ def conv3x3(in_planes, out_planes, stride=1):
     return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
                      padding=1, bias=False)
 
+
 def l1norm(X, dim, eps=1e-8):
     """L1-normalize columns of X
     """
     norm = torch.abs(X).sum(dim=dim, keepdim=True) + eps
     X = torch.div(X, norm)
     return X
+
 
 def l2norm(X, dim, eps=1e-8):
     """L2-normalize columns of X
@@ -35,7 +36,8 @@ def l2norm(X, dim, eps=1e-8):
     X = torch.div(X, norm)
     return X
 
-def func_attention(query, context, opt, smooth, eps=1e-8):
+
+def func_attention(query, context, arg, smooth, eps=1e-8):
     """
     query: (n_context, queryL, d)
     context: (n_context, sourceL, d)
@@ -50,28 +52,28 @@ def func_attention(query, context, opt, smooth, eps=1e-8):
     # (batch, sourceL, d)(batch, d, queryL)
     # --> (batch, sourceL, queryL)
     attn = torch.bmm(context, queryT)
-    if opt.raw_feature_norm == "softmax":
+    if arg['raw_feature_norm'] == "softmax":
         # --> (batch*sourceL, queryL)
         attn = attn.view(batch_size * sourceL, queryL)
         attn = nn.Softmax()(attn)
         # --> (batch, sourceL, queryL)
         attn = attn.view(batch_size, sourceL, queryL)
-    elif opt.raw_feature_norm == "l2norm":
+    elif arg['raw_feature_norm'] == "l2norm":
         attn = l2norm(attn, 2)
-    elif opt.raw_feature_norm == "clipped_l2norm":
+    elif arg['raw_feature_norm'] == "clipped_l2norm":
         attn = nn.LeakyReLU(0.1)(attn)
         attn = l2norm(attn, 2)
-    elif opt.raw_feature_norm == "l1norm":
+    elif arg['raw_feature_norm'] == "l1norm":
         attn = l1norm_d(attn, 2)
-    elif opt.raw_feature_norm == "clipped_l1norm":
+    elif arg['raw_feature_norm'] == "clipped_l1norm":
         attn = nn.LeakyReLU(0.1)(attn)
         attn = l1norm_d(attn, 2)
-    elif opt.raw_feature_norm == "clipped":
+    elif arg['raw_feature_norm'] == "clipped":
         attn = nn.LeakyReLU(0.1)(attn)
     elif opt.raw_feature_norm == "no_norm":
         pass
     else:
-        raise ValueError("unknown first norm type:", opt.raw_feature_norm)
+        raise ValueError("unknown first norm type:", arg['raw_feature_norm'])
     # --> (batch, queryL, sourceL)
     attn = torch.transpose(attn, 1, 2).contiguous()
     # --> (batch*queryL, sourceL)
@@ -91,6 +93,7 @@ def func_attention(query, context, opt, smooth, eps=1e-8):
     weightedContext = torch.transpose(weightedContext, 1, 2)
 
     return weightedContext, attnT
+
 
 def cosine_similarity(x1, x2, dim=1, eps=1e-8):
     """Returns cosine similarity between x1 and x2, computed along dim."""
@@ -187,6 +190,7 @@ def xattn_score_i2t(images, captions, opt):
     similarities = torch.cat(similarities, 1)
     return similarities
 
+
 class ContrastiveLoss(nn.Module):
     """
     Compute contrastive loss
@@ -241,7 +245,7 @@ class MatchDiscriminator(nn.Module):
                                     precomp_enc_type=arg['precomp_enc_type'],
                                     no_imgnorm=arg['no_imgnorm'])
 
-        self.txt_enc = nn.Linear(4 * 4 * arg['ndf'] * 8, arg['common_size'])
+        self.txt_enc = nn.Linear(4 * 4 * arg['ndf'] * 8, arg['common_size']/2)
 
         self.region_generator = region_generator
         self.region_discriminator = region_discriminator
@@ -265,6 +269,10 @@ class MatchDiscriminator(nn.Module):
 
         self.optimizer = torch.optim.Adam(params, lr=arg['match_learning_rate'])
 
+        self.Eiters = 0
+        self.r = arg['r']
+        self.grad_clip = arg['grad_clip']
+
     def state_dict(self):
         state_dict = [self.img_enc.state_dict(), self.txt_enc.state_dict()]
         return state_dict
@@ -284,12 +292,12 @@ class MatchDiscriminator(nn.Module):
         # Forward
         img_emb = self.img_enc(images)
 
-        fake_regions, penal, hidden, mu, BM = self.region_generator(captions, lengths)
-        fake_region_scores, region_feature = self.region_discriminator(fake_regions)
+        fake_regions, penal, hidden, mu, embed = self.region_generator(captions, lengths)
+        region_feature, fake_region_scores = self.region_discriminator(fake_regions)
 
         txt_emb = self.txt_enc(region_feature)
-
-        cap_emb = torch.cat([BM, txt_emb], 3)
+        txt_emb = txt_emb.view(-1, self.r, txt_emb.size(1))
+        cap_emb = torch.cat([embed, txt_emb], 2)
 
         return img_emb, cap_emb
 
@@ -297,7 +305,7 @@ class MatchDiscriminator(nn.Module):
         """Compute the loss given pairs of image and caption embeddings
         """
         loss = self.criterion(img_emb, cap_emb)
-        self.logger.update('Le', loss.data, img_emb.size(0))
+        # print('Le', loss.data, img_emb.size(0))
         return loss
 
     def train_emb(self, images, captions, lengths, epoch):
@@ -319,8 +327,6 @@ class MatchDiscriminator(nn.Module):
         self.optimizer.step()
 
         print("Epoch: %d, iteration: %d, loss: %f " % (epoch, self.Eiters, loss.data))
-
-
 
 
 class STAGE1_D(nn.Module):
@@ -365,6 +371,7 @@ class STAGE1_D(nn.Module):
                 nn.Sigmoid())
 
     def forward(self, image, condition=None):
+        image = image.view(-1, image.size(2), image.size(3), image.size(4))
         image_feature = self.encode_image(image)
 
         if self.bcondition:
@@ -376,8 +383,7 @@ class STAGE1_D(nn.Module):
             code = image_feature
 
         output = self.outlogits(code)
-
-        return image_feature.view(-1,(self.ndf * 8)*4*4), output.view(-1)
+        return image_feature.view(-1, (self.ndf * 8) * 4 * 4), output.view(-1)
 
 
 class STAGE2_D(nn.Module):
